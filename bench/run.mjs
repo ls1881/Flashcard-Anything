@@ -90,13 +90,23 @@ async function generate(testCase, pipeline) {
   if (CHUNK) body.append("chunkChars", CHUNK);
 
   const started = Date.now();
-  const res = await fetch(`http://localhost:${PORT}/api/generate`, { method: "POST", body });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    return { error: data.error ?? `HTTP ${res.status}`, seconds: (Date.now() - started) / 1000 };
+  let res;
+  let text;
+  try {
+    res = await fetch(`http://localhost:${PORT}/api/generate`, { method: "POST", body });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return { error: data.error ?? `HTTP ${res.status}`, seconds: (Date.now() - started) / 1000 };
+    }
+    text = await res.text();
+  } catch (err) {
+    // A slow local generation can exceed Node's 300s header timeout. Record the cell as a
+    // failure rather than losing every result collected so far.
+    return {
+      error: `${err.cause?.code ?? err.name}: ${err.message}`,
+      seconds: (Date.now() - started) / 1000,
+    };
   }
-
-  const text = await res.text();
   let cards = null;
   let error = null;
   for (const line of text.split("\n")) {

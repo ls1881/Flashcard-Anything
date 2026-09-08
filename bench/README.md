@@ -60,21 +60,37 @@ Four fixtures in [`cases.json`](cases.json), each written so prior knowledge is 
 
 `qwen3:8b` via Ollama, four cases, `--chunk 700` to force multi-chunk behaviour:
 
-| pipeline | grnd | cov | secs | calls/chunk |
-| --- | --- | --- | --- | --- |
-| **grounded** | 94% | 90% | **24** | 1 |
-| single | 94% | 90% | 23 | 1 |
-| grounded-review | 94% | 90% | 73 | 2 |
-| review-only | 94% | 90% | 128¹ | 2 |
-| outline-first | 80% | 91% | 65 | 2 |
+| pipeline | acc | grnd | cov | secs | calls/chunk |
+| --- | --- | --- | --- | --- | --- |
+| ensemble | **0.96** | 95% | **96%** | 439² | 3 |
+| **grounded** | 0.94 | 94% | 90% | **24** | 1 |
+| single | 0.94 | 94% | 90% | 23 | 1 |
+| grounded-review | 0.94 | 94% | 90% | 73 | 2 |
+| review-only | 0.94 | 94% | 90% | 128¹ | 2 |
+| outline-first | 0.80 | 67% | 83% | 37 | 2 |
 
 ¹ inflated by one 402s outlier, most likely a model reload; the other three cases averaged 37s.
+² after the writers were made sequential; see below.
 
-**`grounded` is the default.** The checked and unchecked variants returned identical
-per-case scores — 92/100/100/83 groundedness and 88/100/100/71 coverage — so the reviewer
-pass tripled runtime without moving a single number. `outline-first` was actively worse:
-it produced more cards (17 vs 12 on the acronym paper) at much lower fidelity, which is
-what happens when a model defines a term list without re-reading the source.
+**`grounded` is the default**, despite `ensemble` scoring higher. The four checked and
+unchecked variants returned identical per-case scores — 92/100/100/83 groundedness and
+88/100/100/71 coverage — so the reviewer pass tripled runtime without moving a single
+number. `ensemble` is the one arrangement that genuinely beat them, finding more concepts
+(96% coverage against 90%) because two differently-framed writers notice different things.
+It costs 18x the runtime to do it, which is not a trade worth making by default on a local
+model, so it stays available rather than standard.
+
+`outline-first` was the clear loser: 67% grounded, and it produced *more* cards (17 vs 12 on
+the acronym paper) at much lower fidelity — which is what happens when a model defines a
+list of terms without re-reading the source.
+
+### A bug the timings exposed
+
+`ensemble` originally issued its two writer calls under `Promise.all`. A local server runs
+one request per model at a time, so the concurrency bought no parallelism and made the
+calls contend: **1081s per case concurrently against 439s sequentially**, with one case
+taking 44 minutes. The writers now run one after the other. An estimate of "roughly 3x"
+appeared in an earlier draft of this file and was wrong — the measured figure is 18x.
 
 The one gap worth having is `single` vs `grounded`: the evidence check costs about a
 second and is the only thing standing between a deck and an unsupported definition.

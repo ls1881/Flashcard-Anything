@@ -304,10 +304,16 @@ const ensemble: Pipeline = {
     overChunks(ctx, async (chunk, shown, i, soFar) => {
       ctx.onProgress({ phase: "reading", done: i, total: ctx.chunks.length, cards: soFar });
       const instruction = sectionPrompt(i + 1, ctx.chunks.length);
-      const [a, b] = await Promise.all([
-        completeJson(ctx.cfg, WRITER_SYSTEM, partsFor(chunk, ctx.context, instruction)),
-        completeJson(ctx.cfg, ALT_WRITER_SYSTEM, partsFor(chunk, ctx.context, instruction)),
-      ]);
+      // Sequential on purpose. A local server runs one request per model at a time, so
+      // issuing both at once buys no parallelism and makes them contend: 1081s per case
+      // concurrently against 439s sequentially. Even sequential this is 18x `grounded`,
+      // which is why the extra coverage it buys isn't the default.
+      const a = await completeJson(ctx.cfg, WRITER_SYSTEM, partsFor(chunk, ctx.context, instruction));
+      const b = await completeJson(
+        ctx.cfg,
+        ALT_WRITER_SYSTEM,
+        partsFor(chunk, ctx.context, instruction)
+      );
 
       const first = harvest(a, shown);
       const second = harvest(b, shown);

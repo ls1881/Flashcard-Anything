@@ -8,14 +8,19 @@ Convert slideshows, PDFs, textbook chapters, notes, and images into flashcards, 
 - **Generation:** the user picks a provider in the app — **Ollama** (default; local, free, no key), **Anthropic**, **OpenAI**, **OpenRouter**, **Google**, **Groq**, **DeepSeek**, **Mistral**, **Together**, or a **Custom** OpenAI-compatible URL. Providers declare an `ApiStyle`, and only three exist: `openai` (nearly everything), `anthropic` (Messages API with a tool call), and `ollama` (its native API). Adding a provider is a preset, not new client code. Structured output is requested as a JSON schema, falling back to `json_object` and then to tolerant parsing, since servers vary in what they support. Cloud keys live in browser storage or `.env.local` — never in the repo.
 - **Theme:** system, light, or dark. Tokens are defined once for light on `:root`, redefined under `prefers-color-scheme: dark` guarded by `:not([data-theme="light"])`, and again under `[data-theme="dark"]` so an explicit choice wins either way. A tiny pre-paint script in the layout reads the stored choice so there's no flash of the wrong theme. Print always renders on white.
 - **Export:** a versioned JSON document (`version`, `generatedAt`, `source`, `scope`, `model`, `cards`), so other tools get a stable contract. The API returns the same card shape.
-- **Text extraction:** done locally, because a local text model can't read binaries — `unpdf` for PDFs, OOXML unpacking for `.pptx` (slides + speaker notes) and `.docx`. Images go to the model as images and need a vision model.
+- **Text extraction:** done locally, because a local text model can't read binaries — `unpdf` for PDFs, OOXML unpacking for `.pptx` (slides + speaker notes) and `.docx`, plus EPUB, RTF and HTML. Format is detected from the bytes, not the extension. Images are transcribed by a vision model first, then run through the same grounded pipeline as any document.
 - **Chunking:** required here in a way it wasn't with a hosted frontier model — local context windows are small, so material is split on paragraph boundaries, generated section by section, and merged with duplicate terms dropped.
 - **Database:** SQLite via Prisma for local dev/MVP; swappable to Postgres (Neon/Supabase) for production — same schema, just change the datasource.
 - **File storage:** local disk for MVP; S3/Cloudflare R2 later if hosting uploads long-term.
 - **Auth:** skip for v1 (single local user); add NextAuth.js when multi-device/sharing is needed.
-- **Styling:** Tailwind CSS.
+- **Styling:** hand-written CSS with custom properties. The print layout needs exact `@page` control and inch-based grids, which is easier to get right without a utility framework.
 
-## Data model (v1)
+## Not built yet
+
+Everything below is still plan, not code: there is no database, no persistence, and no
+study scheduler. A deck lives in the page until it is printed or exported.
+
+## Data model (planned)
 
 ```
 Deck
@@ -28,9 +33,9 @@ Card
 
 ## Core flow
 
-1. User uploads a file (PDF, image, pptx) or pastes text/a URL.
-2. Backend normalizes input → text + images (extract pptx text, or pass PDF/image straight through).
-3. Call Claude with the content, asking for an array of `{front, back}` flashcards as structured JSON (tool-use schema), chunking long documents so each call stays in context and covers one section.
+1. User uploads a file (PDF, pptx, docx, epub, rtf, html, text, or an image) or pastes text, optionally naming the part they want.
+2. Backend normalizes the input to text, strips page furniture, and resolves any requested chapter/section/page range.
+3. Call the chosen model with the content, asking for `{term, definition, evidence}` cards as structured JSON, chunking long documents so each call stays in context and covers one section.
 4. Show generated cards in an editable review screen — user can edit, delete, merge, or regenerate individual cards before saving.
 5. Save the deck; cards enter a spaced-repetition queue (SM-2: correct → interval grows, wrong → resets).
 6. Study mode: pull due cards, show front, reveal back, user grades recall (again/hard/good/easy), reschedule.
@@ -79,11 +84,18 @@ Roles are batched per chunk, not per card: one call per section, plus one more w
 reviewer runs.
 
 **The default is writer + evidence check, chosen by measurement.** Six arrangements were
-benchmarked (`bench/`), and the reviewer pass tripled runtime while returning identical
+benchmarked (`bench/`). The reviewer pass tripled runtime while returning identical
 per-case scores, so it is no longer on by default. The evidence check stays because it is
-nearly free and is the only mechanical guard against an unsupported definition. The
-benchmark cannot see the reviewer's value on messy material, which is a limitation of the
-fixtures rather than proof the reviewer is useless — it remains selectable.
+nearly free and is the only mechanical guard against an unsupported definition.
+
+A two-writer ensemble did score highest — 96% concept coverage against 90% — but costs 18x
+the runtime, so it is selectable rather than standard. Benchmarking it also exposed a real
+bug: its writers ran under `Promise.all`, which on a server that handles one request per
+model at a time bought no parallelism and made them contend (1081s per case, against 439s
+once sequential).
+
+The benchmark cannot see the reviewer's value on messy material, which is a limitation of
+the fixtures rather than proof the reviewer is useless.
 
 Chunking is what invites invention, so each request also carries a context block: the
 document's opening plus an acronym glossary harvested from the full text before splitting.
