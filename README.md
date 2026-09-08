@@ -80,11 +80,18 @@ match on each side of the paper.
 
 | Input | Handling |
 | --- | --- |
-| PDF | Text extracted locally with `unpdf` |
+| PDF | Text extracted locally with `unpdf`, one page at a time |
 | .pptx | Slide text + speaker notes unpacked from the OOXML |
 | .docx | Document text unpacked from the OOXML |
-| Text formats | Read directly |
+| .epub | Chapters read in spine order |
+| .rtf, .html | Markup stripped |
+| .txt/.md/.csv | Read directly |
 | Images | Sent to the model as an image — **needs a vision model** (`ollama pull qwen2.5vl:7b`) |
+
+Format is detected from the file's bytes rather than its extension, so a mislabelled or
+extension-less file still works. Legacy `.doc`/`.ppt`, Pages/Keynote, and files that aren't
+documents at all are refused with a message saying what to do instead, rather than being
+fed to the model as garbage.
 
 Everything normalizes to the same `{ term, definition }` list, which drives both the
 on-screen deck and the print sheets.
@@ -123,9 +130,27 @@ and turned into cards a section at a time, with progress streamed back to the pa
 duplicate terms merged out. Cloud providers get much larger chunks, so they usually finish
 in one pass.
 
-**Limits:** scanned/image-only PDFs have no extractable text — screenshot the pages and
-upload them as images with a vision model instead. Card quality tracks the model you run;
-with Ollama, a bigger model (`ollama pull qwen3:14b`) gives noticeably better definitions.
+Images take an extra step: the vision model transcribes the page first, and the
+transcription then goes through the same grounded pipeline as any document, so an image
+gets the same evidence check and review as a PDF.
+
+**Limits:**
+
+- Scanned/image-only PDFs have no extractable text — screenshot the pages and upload them
+  as images with a vision model instead.
+- Transparent PNGs can reach the model as a black rectangle. Save as JPEG if a screenshot
+  comes back empty.
+- Small vision models are weak on dense maths and can loop; generation is capped so that
+  fails in seconds rather than minutes. Expect thin results from image uploads of
+  formula-heavy pages, and prefer the original document when you have it.
+- Card quality tracks the model. With Ollama, a bigger model (`ollama pull qwen3:14b`)
+  gives noticeably better definitions.
+- A dense textbook section is near the edge of what an 8B local model handles well, and a
+  full section takes around ten minutes. Scope to a section rather than a chapter, and
+  prefer a larger model or a cloud provider for maths-heavy material.
+
+Running headers, footers, and other page furniture are stripped before the model reads a
+page, so cards come from the content rather than the margins.
 
 - [`lib/providers.ts`](lib/providers.ts) — the three providers and their defaults
 - [`lib/llm.ts`](lib/llm.ts) — provider clients, JSON coaxing, error messages

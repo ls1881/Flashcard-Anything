@@ -88,6 +88,8 @@ export function buildOutline(pages: string[]): Outline {
   for (const line of text.split("\n")) {
     const found = headingFrom(line);
     if (found && found.title.length < 95) {
+      // Running headers carry the page number; it isn't part of the title.
+      found.title = found.title.replace(/\s+\d{1,4}$/, "").trim();
       headings.push({ ...found, start: offset, page: pageAt(pageStarts, offset) });
     }
     offset += line.length + 1;
@@ -122,6 +124,37 @@ function extentOf(outline: Outline, index: number): { start: number; end: number
     start: heading.start,
     end: next === -1 ? outline.text.length : outline.headings[next].start,
   };
+}
+
+/**
+ * Textbooks repeat the section title as a running header on every page, so a number like
+ * "1.2" can appear a dozen times — once in the contents, then once per page of the body.
+ * Taking the first match yields the few characters before the next repeat. Instead, treat
+ * repeats of the same number as one section and keep the occurrence that spans the most
+ * text, which is the body rather than a contents line or a page header.
+ */
+function bestExtentForNumber(
+  outline: Outline,
+  number: string
+): { index: number; start: number; end: number } | null {
+  let best: { index: number; start: number; end: number; len: number } | null = null;
+
+  outline.headings.forEach((heading, i) => {
+    if (heading.number !== number) return;
+    let end = outline.text.length;
+    for (let j = i + 1; j < outline.headings.length; j++) {
+      const next = outline.headings[j];
+      if (next.number === number) continue; // the same section's running header
+      if (next.level <= heading.level) {
+        end = next.start;
+        break;
+      }
+    }
+    const len = end - heading.start;
+    if (!best || len > best.len) best = { index: i, start: heading.start, end, len };
+  });
+
+  return best;
 }
 
 function describe(outline: Outline, heading: Heading, start: number, end: number): Scope {
@@ -187,10 +220,9 @@ export function findScope(outline: Outline, query: string): Scope | null {
   if (chapterNo !== null && sectionMatch) {
     const sec = sectionMatch[1];
     const target = sec.includes(".") ? sec : `${chapterNo}.${sec}`;
-    const exact = outline.headings.findIndex((h) => h.number === target);
-    if (exact !== -1) {
-      const { start, end } = extentOf(outline, exact);
-      return describe(outline, outline.headings[exact], start, end);
+    const exact = bestExtentForNumber(outline, target);
+    if (exact) {
+      return describe(outline, outline.headings[exact.index], exact.start, exact.end);
     }
 
     const chapterIndex = outline.headings.findIndex(
@@ -213,23 +245,30 @@ export function findScope(outline: Outline, query: string): Scope | null {
   // "section 3.2" or a bare "3.2"
   const numbered = sectionMatch?.[1] ?? dotted?.[1];
   if (numbered) {
-    const idx = outline.headings.findIndex((h) => h.number === numbered);
-    if (idx !== -1) {
-      const { start, end } = extentOf(outline, idx);
-      return describe(outline, outline.headings[idx], start, end);
-    }
+    const hit = bestExtentForNumber(outline, numbered);
+    if (hit) return describe(outline, outline.headings[hit.index], hit.start, hit.end);
   }
 
   // "chapter 3"
   if (chapterNo !== null) {
-    const idx = outline.headings.findIndex(
-      (h) => h.level === 1 && h.number === String(chapterNo)
-    );
-    if (idx !== -1) {
-      const { start, end } = extentOf(outline, idx);
-      const h = outline.headings[idx];
+    // Prefer the span covered by the chapter's own sections. "Chapter 3" also appears in
+    // cross-references inside body text, which a plain heading lookup happily matches.
+    const first = bestExtentForNumber(outline, `${chapterNo}.1`);
+    if (first) {
+      const nextChapter = bestExtentForNumber(outline, `${chapterNo + 1}.1`);
+      const end = nextChapter && nextChapter.start > first.start ? nextChapter.start : outline.text.length;
+      const h = outline.headings[first.index];
       return {
-        ...describe(outline, h, start, end),
+        ...describe(outline, h, first.start, end),
+        label: `Chapter ${chapterNo}${h.title ? ` — ${h.title}` : ""}`,
+      };
+    }
+
+    const hit = bestExtentForNumber(outline, String(chapterNo));
+    if (hit) {
+      const h = outline.headings[hit.index];
+      return {
+        ...describe(outline, h, hit.start, hit.end),
         label: `Chapter ${h.number}${h.title ? ` — ${h.title}` : ""}`,
       };
     }
@@ -262,7 +301,30 @@ export function findScope(outline: Outline, query: string): Scope | null {
 
 /** Chapter-level headings, for telling the user what they can ask for. */
 export function tableOfContents(outline: Outline, limit = 14): string[] {
-  const top = outline.headings.filter((h) => h.level === 1);
-  const list = (top.length ? top : outline.headings).slice(0, limit);
-  return list.map((h) => [h.number, h.title].filter(Boolean).join(" ").trim());
+  // Numbered sections are the most useful thing to offer, since they're what a reader can
+  // ask for by name. Chapter-level lines in a real book are often prose summaries.
+  const sections = outline.headings.filter((h) => h.level >= 2 && h.number && h.title);
+  const top = sections.length ? sections : outline.headings.filter((h) => h.level === 1);
+  const source = top.length ? top : outline.headings;
+
+  // The real title is the one that recurs, because it's printed as a running header on
+  // every page of the section. A one-off match is usually a mid-sentence cross-reference.
+  const counts = new Map<string, Map<string, number>>();
+  for (const h of source) {
+    const key = h.number ?? h.title;
+    if (!h.title) continue;
+    const forNumber = counts.get(key) ?? new Map<string, number>();
+    forNumber.set(h.title, (forNumber.get(h.title) ?? 0) + 1);
+    counts.set(key, forNumber);
+  }
+
+  const best: [string, string][] = [];
+  for (const [number, titles] of counts) {
+    const winner = [...titles].sort(
+      (a, b) => b[1] - a[1] || b[0].length - a[0].length
+    )[0];
+    if (winner) best.push([number, winner[0]]);
+  }
+
+  return best.slice(0, limit).map(([number, title]) => `${number} ${title}`.trim());
 }

@@ -98,6 +98,54 @@ fallback for unnumbered documents is word overlap against heading titles.
 Oversized documents without a scope are now rejected with the detected chapter list rather
 than silently truncated at `chunkChars × MAX_CHUNKS`, which is what used to happen.
 
+## Ollama uses the native API, not the OpenAI shim
+
+Ollama's `/v1/chat/completions` pins the context window at 4096 tokens and offers no way to
+turn off qwen3's hidden reasoning. A 3500-character chunk plus its context block and system
+prompt exceeds that, so material was being silently truncated. Switching the Ollama path to
+`/api/chat` — with `options.num_ctx` (8192, override via `OLLAMA_NUM_CTX`), `think: false`,
+and the JSON schema passed as `format` — made a 38-slide deck go from 642s to 106s while
+producing more cards. OpenRouter still uses the OpenAI-compatible path; Anthropic uses its
+Messages API.
+
+## What testing on real coursework changed
+
+Running the real files surfaced things synthetic fixtures never would:
+
+- **Acronyms swallowed titles.** Skipping filler words to match initials let `(CSP)` bind to
+  eight words of a paper title. Now the shortest trailing phrase starting on the acronym's
+  first letter wins.
+- **Running headers broke navigation.** A textbook prints "1.2 Section Title" on every page,
+  so the first match's extent ran only to the next repeat — 54 characters. Repeats of a
+  number are now treated as one section, keeping the occurrence that spans the most text.
+- **Chapters aren't headings.** "Chapter 3" also appears in cross-references inside body
+  text, so a chapter is derived from its own sections (`3.1` to `4.1`) when they exist.
+- **Contents listings need frequency, not length.** The real section title is the one that
+  recurs as a running header; the longest match is often a mid-sentence fragment.
+- **Images had no grounding at all.** A vision model returned the single word "system" for a
+  page it couldn't decode, and the writer dutifully defined "system". Images are now
+  transcribed first, and the transcript runs through the same evidence check and review as
+  any document, so an unreadable image fails visibly instead of inventing a card.
+- **Maths breaks JSON.** `\frac` is not a legal JSON escape, so a single formula could make a
+  whole response unparseable. Invalid escapes are repaired before parsing, transcription
+  asks for plain notation rather than LaTeX, and transcription returns plain text instead of
+  being forced through a JSON string.
+- **Small models loop.** One produced 19k characters of repeated `\begin{array}` over four
+  minutes. Generation is capped (`num_predict`), so a loop now fails in seconds.
+- **Page furniture became flashcards.** Running headers are extracted as body text, so a
+  card came back as `term: "T ( 2.3 Matrix Products 75"`. Document-wide line frequency was
+  the wrong detector — a section header appears on ~15 of 527 pages, and "Solution" appears
+  constantly without being furniture. Furniture is positional, so only the first and last
+  lines of each page are considered. Headings are located before this runs, since the
+  repetition is what makes a running header useful for navigation.
+- **Control characters voided whole batches.** PDFs carry C0 bytes where they use custom
+  glyphs; a model echoes one into a JSON string, and a raw control character there is
+  invalid. Stripped at extraction, with repair as a backup.
+- **Truncated responses lost everything.** The output cap cuts a response mid-array, and the
+  outer `{"cards":[` never closes — so a salvage pass that looked for balanced objects at
+  depth 0 found none. It now scans for the nested card objects, which recovered 58 and 79
+  cards in a single textbook run.
+
 ## Open questions
 
 - Richer traceability (page or slide numbers, not just the quoted span).

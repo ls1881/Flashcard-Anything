@@ -1,10 +1,20 @@
 import { NextResponse } from "next/server";
-import { buildGlossary, chunkText, fileToSource, MAX_BYTES, type Source } from "@/lib/extract";
-import { completeJson, resolveKey, type LlmConfig, type Part } from "@/lib/llm";
+import {
+  buildGlossary,
+  chunkText,
+  fileToSource,
+  MAX_BYTES,
+  removeRepeatedLines,
+  repeatedLines,
+  type Source,
+} from "@/lib/extract";
+import { completeJson, completeText, resolveKey, type LlmConfig, type Part } from "@/lib/llm";
 import { PROVIDERS, isProviderId } from "@/lib/providers";
 import { reviewCards } from "@/lib/verify";
 import { buildOutline, findScope, tableOfContents } from "@/lib/outline";
 import type { Card } from "@/lib/duplex";
+
+type TextSource = Extract<Source, { kind: "text" }>;
 
 export const runtime = "nodejs";
 export const maxDuration = 800;
@@ -29,6 +39,12 @@ Rules for every card:
 - "definition" carries all the substance: 1 to 3 sentences, under 45 words, understandable without seeing the term, and faithful to how this document uses it.
 - One card per distinct idea worth memorizing. Skip title slides, agendas, page numbers, and citations.
 - No duplicate terms.`;
+
+const TRANSCRIBE_SYSTEM = `You transcribe images. Reply with the transcription only — no preamble, no commentary.
+
+Copy out every word, heading, label, formula, and caption you can see, in reading order. Transcribe only — never summarize, explain, answer, or add anything that is not visibly written in the image.
+
+Write formulas in plain readable notation, like "E[Q] = 3/4 + 1/2 + 1/4 = 1.5" or "Var(Q) = 5/8". Never use LaTeX markup, backslash commands, or math delimiters. If there is no readable text, return an empty string.`;
 
 const userPrompt = (part: number, total: number) =>
   total > 1
@@ -103,8 +119,7 @@ function mergeInto(deck: Card[], seen: Set<string>, cards: Card[]): void {
  * starts inventing. Every chunk gets the document's opening and its acronym glossary so
  * terms are read in this document's context rather than the model's priors.
  */
-function contextBlock(source: Source): string {
-  if (source.kind === "image") return "";
+function contextBlock(source: TextSource): string {
   const glossary = buildGlossary(source.text);
   const opening = source.text.slice(0, 700).trim();
   const parts = [
@@ -121,25 +136,10 @@ function contextBlock(source: Source): string {
   return parts.join("\n\n");
 }
 
-function buildParts(
-  source: Source,
-  chunk: string | null,
-  part: number,
-  total: number,
-  context: string
-): Part[] {
-  if (source.kind === "image") {
-    return [
-      { type: "image_url", image_url: { url: source.dataUrl } },
-      {
-        type: "text",
-        text: "Read this image and make flashcards from what it teaches, using only what the image says.",
-      },
-    ];
-  }
+function buildParts(chunk: string, part: number, total: number, context: string): Part[] {
   return [
     ...(context ? [{ type: "text" as const, text: context }] : []),
-    { type: "text", text: `SOURCE TEXT:\n${chunk ?? ""}` },
+    { type: "text", text: `SOURCE TEXT:\n${chunk}` },
     { type: "text", text: userPrompt(part, total) },
   ];
 }
@@ -229,10 +229,6 @@ export async function POST(req: Request) {
     }
   }
 
-  const chunks =
-    source.kind === "image"
-      ? [null]
-      : chunkText(source.text, PROVIDERS[cfg.provider].chunkChars, MAX_CHUNKS);
   const encoder = new TextEncoder();
 
   // Streamed as NDJSON so the page can show progress; local runs take real time.
@@ -241,26 +237,53 @@ export async function POST(req: Request) {
       const send = (obj: unknown) => controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
       const cards: Card[] = [];
       const seen = new Set<string>();
-      const context = contextBlock(source);
       let dropped = 0;
       let fixed = 0;
 
       try {
+        // An image has no text to check a quote against, so read it out first and then
+        // run the same grounded pipeline everything else goes through.
+        let material = source;
+        if (material.kind === "image") {
+          send({ type: "progress", phase: "reading", done: 0, total: 1, cards: 0 });
+          const transcript = (
+            await completeText(cfg, TRANSCRIBE_SYSTEM, [
+              { type: "image_url", image_url: { url: material.dataUrl } },
+              { type: "text", text: "Transcribe this image." },
+            ])
+          ).trim();
+          if (transcript.length < 20) {
+            send({
+              type: "error",
+              error: `"${cfg.model}" couldn't read any text in that image. Use a vision model such as qwen2.5vl:7b, or upload the document itself.`,
+            });
+            controller.close();
+            return;
+          }
+          material = { kind: "text", text: transcript, pages: [transcript] };
+        }
+
+        const context = contextBlock(material);
+        // Strip page furniture from what the model reads. Headings were already located,
+        // so removing the repeated lines now costs nothing and cleans up the chunks.
+        const body = removeRepeatedLines(material.text, repeatedLines(material.pages));
+        const chunks = chunkText(body, PROVIDERS[cfg.provider].chunkChars, MAX_CHUNKS);
+
         for (let i = 0; i < chunks.length; i++) {
           const chunk = chunks[i];
-          const shown = `${context}\n${chunk ?? ""}`;
+          const shown = `${context}\n${chunk}`;
 
           // Pass 1 — write cards from this section.
           send({ type: "progress", phase: "reading", done: i, total: chunks.length, cards: cards.length });
-          const parts = buildParts(source, chunk, i + 1, chunks.length, context);
+          const parts = buildParts(chunk, i + 1, chunks.length, context);
           const result = await completeJson(cfg, SYSTEM, parts);
 
           // Check each quote against exactly what this call was shown.
-          const found = harvest(result, source.kind === "image" ? null : shown);
+          const found = harvest(result, shown);
           dropped += found.dropped;
 
           // Pass 2 — a second look that judges each definition against the source.
-          if (found.cards.length && source.kind !== "image") {
+          if (found.cards.length) {
             send({
               type: "progress",
               phase: "checking",
@@ -283,11 +306,9 @@ export async function POST(req: Request) {
           send({
             type: "error",
             error:
-              source.kind === "image"
-                ? `No cards came back. "${cfg.model}" may not read images — try a vision model.`
-                : dropped > 0
-                  ? `Every card "${cfg.model}" produced was making things up rather than reading the text, so all ${dropped} were dropped. Try a larger model.`
-                  : "Couldn't find anything to make flashcards from in that.",
+              dropped > 0
+                ? `Every card "${cfg.model}" produced was making things up rather than reading the text, so all ${dropped} were dropped. Try a larger model.`
+                : "Couldn't find anything to make flashcards from in that.",
           });
         } else {
           send({ type: "result", cards, dropped, fixed, scope: scopeLabel });
