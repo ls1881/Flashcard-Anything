@@ -101,6 +101,25 @@ Chunking is what invites invention, so each request also carries a context block
 document's opening plus an acronym glossary harvested from the full text before splitting.
 Chunks overlap by ~320 characters. Temperature is 0.
 
+## Deduplication (built)
+
+`lib/dedupe.ts` is the single funnel every pipeline merges through. Three signals, because
+term equality alone let "intravaginal ring" and "intravaginal ring (IVR)" both through with
+identical backs:
+
+1. **Normalized term** — case, parenthetical glosses, punctuation, leading articles, and
+   simple plurals folded away. Singularization skips `-ss/-us/-is/-as` so "bias" and
+   "analysis" survive intact.
+2. **Document glossary** — an acronym whose expansion the document states maps onto that
+   expansion, so `IVR` and `intravaginal ring` are one card rather than two.
+3. **Definition similarity** — containment over content words at 0.85, which catches a
+   restatement in different words. Numbers are compared exactly first: two cards quoting
+   different figures are making different claims however similar the wording, so
+   "40 units" and "85 units" never merge.
+
+Covered by `npm test`, including the cases that must *not* collapse — "morpheme" vs "free
+morpheme", and a terse card that must not swallow a detailed one.
+
 ## Navigation (built)
 
 A whole textbook can be uploaded with a request like "flashcards for chapter 3, section 2".

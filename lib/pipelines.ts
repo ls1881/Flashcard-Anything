@@ -1,5 +1,6 @@
 import { completeJson, type JsonSchema, type LlmConfig, type Part } from "./llm";
 import { reviewCards } from "./verify";
+import { addCards, newDeck, type Deck } from "./dedupe";
 import type { Card } from "./duplex";
 
 /**
@@ -21,11 +22,19 @@ export type PipelineCtx = {
   chunks: string[];
   /** Document context prepended to every call. */
   context: string;
+  /** "ACR = Expansion" pairs from the document, used to fold acronym duplicates. */
+  glossary: string[];
   maxCards: number;
   onProgress: (p: Progress) => void;
 };
 
-export type PipelineResult = { cards: Card[]; dropped: number; fixed: number };
+export type PipelineResult = {
+  cards: Card[];
+  dropped: number;
+  fixed: number;
+  /** Cards discarded for repeating a term or restating a definition. */
+  duplicates: number;
+};
 
 export type Pipeline = {
   id: string;
@@ -120,15 +129,9 @@ export function harvest(raw: unknown, haystack: string | null): { cards: Card[];
   return { cards, dropped };
 }
 
-/** Add to the deck, skipping terms already covered by an earlier chunk. */
-export function mergeInto(deck: Card[], seen: Set<string>, cards: Card[], maxCards: number): void {
-  for (const card of cards) {
-    const key = card.term.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deck.push(card);
-    if (deck.length >= maxCards) return;
-  }
+/** Add to the deck, dropping anything that repeats a term or restates a definition. */
+export function mergeInto(deck: Deck, cards: Card[], maxCards: number): number {
+  return addCards(deck, cards, maxCards);
 }
 
 /** Walk the chunks, letting the caller decide what happens to each chunk's cards. */
@@ -140,21 +143,22 @@ async function overChunks(
     fixed: number;
   }>
 ): Promise<PipelineResult> {
-  const deck: Card[] = [];
-  const seen = new Set<string>();
+  const deck = newDeck(ctx.glossary);
   let dropped = 0;
   let fixed = 0;
+  let duplicates = 0;
 
   for (let i = 0; i < ctx.chunks.length; i++) {
     const chunk = ctx.chunks[i];
     const shown = `${ctx.context}\n${chunk}`;
-    const result = await handle(chunk, shown, i, deck.length);
+    const result = await handle(chunk, shown, i, deck.cards.length);
     dropped += result.dropped;
     fixed += result.fixed;
-    mergeInto(deck, seen, result.cards, ctx.maxCards);
-    if (deck.length >= ctx.maxCards) break;
+    // Counted separately from `dropped`: a repeat isn't a grounding failure.
+    duplicates += mergeInto(deck, result.cards, ctx.maxCards);
+    if (deck.cards.length >= ctx.maxCards) break;
   }
-  return { cards: deck, dropped, fixed };
+  return { cards: deck.cards, dropped, fixed, duplicates };
 }
 
 async function write(ctx: PipelineCtx, chunk: string, index: number): Promise<unknown> {
@@ -317,9 +321,9 @@ const ensemble: Pipeline = {
 
       const first = harvest(a, shown);
       const second = harvest(b, shown);
-      const pooled: Card[] = [];
-      const seen = new Set<string>();
-      mergeInto(pooled, seen, [...first.cards, ...second.cards], ctx.maxCards);
+      const pool = newDeck(ctx.glossary);
+      mergeInto(pool, [...first.cards, ...second.cards], ctx.maxCards);
+      const pooled = pool.cards;
       if (!pooled.length) {
         return { cards: [], dropped: first.dropped + second.dropped, fixed: 0 };
       }

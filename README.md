@@ -167,6 +167,15 @@ just discarding them. It is **off by default**: benchmarking six arrangements fo
 tripled runtime without changing any score ([bench/](bench/)). Turn it on per request with
 `-F "pipeline=grounded-review"`.
 
+**No duplicates.** A deck should never teach the same thing twice. Matching lowercased
+terms isn't enough — a document that writes "intravaginal ring (IVR)" in one section and
+"intravaginal ring" in another produces two cards with the same back. So a card is dropped
+if its term normalizes to one already kept (ignoring case, a parenthetical gloss, a leading
+article, and simple plurals), if the document's own glossary says its acronym expands to a
+term already kept, or if its definition says substantially the same thing as one already
+kept. Different figures make definitions different, so "40 units" and "85 units" stay apart.
+The results bar reports how many were merged.
+
 **Context, so chunks don't invite invention.** Acronym expansions (`URTC = Undergraduate
 Research and Technology Conference`) are harvested from the whole document before splitting
 and attached to every request, so a term defined on page 1 is still understood on page 9.

@@ -154,6 +154,7 @@ export async function POST(req: Request) {
       const cards: Card[] = [];
       let dropped = 0;
       let fixed = 0;
+      let duplicates = 0;
 
       try {
         // An image has no text to check a quote against, so read it out first and then
@@ -178,6 +179,7 @@ export async function POST(req: Request) {
           material = { kind: "text", text: transcript, pages: [transcript] };
         }
 
+        const glossary = buildGlossary(material.text);
         const context = contextBlock(material);
         // Strip page furniture from what the model reads. Headings were already located,
         // so removing the repeated lines now costs nothing and cleans up the chunks.
@@ -193,12 +195,14 @@ export async function POST(req: Request) {
           cfg,
           chunks,
           context,
+          glossary,
           maxCards: MAX_CARDS,
           onProgress: (p: Progress) => send({ type: "progress", ...p }),
         });
         cards.push(...result.cards);
         dropped += result.dropped;
         fixed += result.fixed;
+        duplicates += result.duplicates;
 
         if (!cards.length) {
           send({
@@ -209,7 +213,15 @@ export async function POST(req: Request) {
                 : "Couldn't find anything to make flashcards from in that.",
           });
         } else {
-          send({ type: "result", cards, dropped, fixed, scope: scopeLabel, pipeline: pipelineFor(pipelineId).id });
+          send({
+            type: "result",
+            cards,
+            dropped,
+            fixed,
+            duplicates,
+            scope: scopeLabel,
+            pipeline: pipelineFor(pipelineId).id,
+          });
         }
       } catch (err) {
         send({ type: "error", error: err instanceof Error ? err.message : "Something went wrong." });
