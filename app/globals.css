@@ -270,6 +270,23 @@ select {
   color: var(--muted);
 }
 
+.scope {
+  width: 100%;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14px;
+  background: #fff;
+  color: inherit;
+}
+
+.scope:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
 .hint {
   text-align: center;
   color: var(--muted);

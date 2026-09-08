@@ -3,12 +3,14 @@ import { buildGlossary, chunkText, fileToSource, MAX_BYTES, type Source } from "
 import { completeJson, resolveKey, type LlmConfig, type Part } from "@/lib/llm";
 import { PROVIDERS, isProviderId } from "@/lib/providers";
 import { reviewCards } from "@/lib/verify";
+import { buildOutline, findScope, tableOfContents } from "@/lib/outline";
 import type { Card } from "@/lib/duplex";
 
 export const runtime = "nodejs";
 export const maxDuration = 800;
 
 const MAX_CARDS = 60;
+const MAX_CHUNKS = 16;
 
 const SYSTEM = `You write study flashcards from a source document. You reply with JSON only — no commentary, no markdown fences.
 
@@ -145,11 +147,13 @@ function buildParts(
 export async function POST(req: Request) {
   let source: Source;
   let cfg: LlmConfig;
+  let scopeRequest = "";
 
   try {
     const form = await req.formData();
     const file = form.get("file");
     const text = String(form.get("text") ?? "").trim();
+    scopeRequest = String(form.get("scope") ?? "").trim();
 
     const provider = String(form.get("provider") ?? "ollama");
     if (!isProviderId(provider)) {
@@ -170,7 +174,7 @@ export async function POST(req: Request) {
       }
       source = await fileToSource(file);
     } else if (text) {
-      source = { kind: "text", text };
+      source = { kind: "text", text, pages: [text] };
     } else {
       return NextResponse.json({ error: "Add a file or some text first." }, { status: 400 });
     }
@@ -179,10 +183,56 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 
+  // Narrow a big document to the requested part before anything reaches a model.
+  let scopeLabel: string | null = null;
+  if (source.kind === "text") {
+    const outline = buildOutline(source.pages);
+
+    if (scopeRequest) {
+      const scope = findScope(outline, scopeRequest);
+      if (!scope) {
+        const toc = tableOfContents(outline);
+        return NextResponse.json(
+          {
+            error:
+              `Couldn't find "${scopeRequest}" in that document.` +
+              (toc.length
+                ? ` It looks like it contains: ${toc.join("; ")}.`
+                : " No chapter or section headings were detected, so try a page range like \"pages 40-60\"."),
+          },
+          { status: 404 }
+        );
+      }
+      scopeLabel =
+        scope.pages[0] === scope.pages[1]
+          ? `${scope.label} (page ${scope.pages[0]})`
+          : `${scope.label} (pages ${scope.pages[0]}–${scope.pages[1]})`;
+      source = { ...source, text: outline.text.slice(scope.start, scope.end) };
+    } else {
+      // Without a scope, a whole textbook would silently become cards from page one only.
+      const capacity = PROVIDERS[cfg.provider].chunkChars * MAX_CHUNKS;
+      if (source.text.length > capacity) {
+        const toc = tableOfContents(outline);
+        return NextResponse.json(
+          {
+            error:
+              `That document is too long to turn into one deck (${Math.round(
+                source.text.length / 1000
+              )}k characters across ${outline.pageCount} pages). Say which part you want — ` +
+              (toc.length
+                ? `for example "${toc[Math.min(1, toc.length - 1)]}".`
+                : 'for example "pages 40-60".'),
+          },
+          { status: 413 }
+        );
+      }
+    }
+  }
+
   const chunks =
     source.kind === "image"
       ? [null]
-      : chunkText(source.text, PROVIDERS[cfg.provider].chunkChars);
+      : chunkText(source.text, PROVIDERS[cfg.provider].chunkChars, MAX_CHUNKS);
   const encoder = new TextEncoder();
 
   // Streamed as NDJSON so the page can show progress; local runs take real time.
@@ -240,7 +290,7 @@ export async function POST(req: Request) {
                   : "Couldn't find anything to make flashcards from in that.",
           });
         } else {
-          send({ type: "result", cards, dropped, fixed });
+          send({ type: "result", cards, dropped, fixed, scope: scopeLabel });
         }
       } catch (err) {
         send({ type: "error", error: err instanceof Error ? err.message : "Something went wrong." });

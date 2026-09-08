@@ -1,13 +1,13 @@
 import JSZip from "jszip";
 import { extractText, getDocumentProxy } from "unpdf";
 
-export const MAX_BYTES = 25 * 1024 * 1024;
+export const MAX_BYTES = 100 * 1024 * 1024;
 
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
 /** Everything an upload can become before it reaches the model. */
 export type Source =
-  | { kind: "text"; text: string }
+  | { kind: "text"; text: string; pages: string[] }
   | { kind: "image"; dataUrl: string };
 
 function decodeXmlEntities(s: string): string {
@@ -39,13 +39,15 @@ function numericOrder(names: string[]): string[] {
   });
 }
 
-async function pdfToText(buf: Buffer): Promise<string> {
+/** Per page, so "pages 100-120" can be honoured later. */
+async function pdfToPages(buf: Buffer): Promise<string[]> {
   const pdf = await getDocumentProxy(new Uint8Array(buf));
-  const { text } = await extractText(pdf, { mergePages: true });
-  return (Array.isArray(text) ? text.join("\n\n") : text).trim();
+  const { text } = await extractText(pdf, { mergePages: false });
+  return (Array.isArray(text) ? text : [text]).map((p) => String(p ?? "").trim());
 }
 
-async function pptxToText(buf: Buffer): Promise<string> {
+/** One entry per slide, which doubles as the page unit for slide ranges. */
+async function pptxToPages(buf: Buffer): Promise<string[]> {
   const zip = await JSZip.loadAsync(buf);
   const slides = numericOrder(
     Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))
@@ -58,7 +60,7 @@ async function pptxToText(buf: Buffer): Promise<string> {
     if (!body && !notes) continue;
     sections.push(`--- Slide ${i + 1} ---\n${body}${notes ? `\n[Speaker notes] ${notes}` : ""}`);
   }
-  return sections.join("\n\n");
+  return sections;
 }
 
 async function docxToText(buf: Buffer): Promise<string> {
@@ -81,24 +83,25 @@ export async function fileToSource(file: File): Promise<Source> {
     return { kind: "image", dataUrl: `data:${file.type};base64,${buf.toString("base64")}` };
   }
 
-  let text: string;
+  let pages: string[];
   if (file.type === "application/pdf" || lower.endsWith(".pdf")) {
-    text = await pdfToText(buf);
-    if (!text.trim()) {
+    pages = await pdfToPages(buf);
+    if (!pages.join("").trim()) {
       throw new Error(
         `"${name}" has no extractable text — it's probably a scan. Export a text-based PDF, or screenshot the pages and upload them as images with a vision model.`
       );
     }
   } else if (lower.endsWith(".pptx")) {
-    text = await pptxToText(buf);
+    pages = await pptxToPages(buf);
   } else if (lower.endsWith(".docx")) {
-    text = await docxToText(buf);
+    pages = [await docxToText(buf)];
   } else {
-    text = buf.toString("utf8");
+    pages = [buf.toString("utf8")];
   }
 
+  const text = pages.join("\n\n");
   if (!text.trim()) throw new Error(`Couldn't read any text out of "${name}".`);
-  return { kind: "text", text: `Source document "${name}":\n\n${text}` };
+  return { kind: "text", text: `Source document "${name}":\n\n${text}`, pages };
 }
 
 /** Does `acro` read as the initials of `expansion`, allowing skipped filler words? */

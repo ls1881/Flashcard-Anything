@@ -11,6 +11,7 @@ const STORAGE_KEY = "flashcard-anything:settings";
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");
+  const [scope, setScope] = useState("");
   const [cards, setCards] = useState<Card[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,6 +25,7 @@ export default function Home() {
     cards: number;
   } | null>(null);
   const [audit, setAudit] = useState<{ dropped: number; fixed: number } | null>(null);
+  const [scopeUsed, setScopeUsed] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -59,6 +61,7 @@ export default function Home() {
       const body = new FormData();
       if (file) body.append("file", file);
       else body.append("text", text);
+      if (scope.trim()) body.append("scope", scope.trim());
       body.append("provider", settings.provider);
       body.append("model", modelFor(settings));
       body.append("apiKey", keyFor(settings));
@@ -91,6 +94,7 @@ export default function Home() {
           else if (msg.type === "result") {
             setCards(msg.cards as Card[]);
             setAudit({ dropped: msg.dropped ?? 0, fixed: msg.fixed ?? 0 });
+            setScopeUsed(msg.scope ?? null);
             setFlipped(new Set());
           }
         }
@@ -107,6 +111,7 @@ export default function Home() {
     setCards(null);
     setFile(null);
     setText("");
+    setScope("");
     setError(null);
   }
 
@@ -125,6 +130,7 @@ export default function Home() {
         <div className="wrap screen">
           <div className="bar">
             <span className="count">
+              {scopeUsed ? `${scopeUsed} · ` : ""}
               {cards.length} flashcards
               {audit && (audit.dropped > 0 || audit.fixed > 0) && (
                 <span className="checked">
@@ -251,6 +257,14 @@ export default function Home() {
                 />
               </>
             )}
+
+            <input
+              className="scope"
+              value={scope}
+              spellCheck={false}
+              onChange={(e) => setScope(e.target.value)}
+              placeholder={'Which part? e.g. "chapter 3, section 2" — optional'}
+            />
 
             <button className="primary" onClick={generate} disabled={!ready}>
               Make flashcards

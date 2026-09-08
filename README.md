@@ -34,9 +34,32 @@ in `.env.local` and leave the field blank.
 ## Using it
 
 1. Drop in a **PDF, .pptx, .docx, .txt/.md/.csv, or an image** — or paste text.
-2. Hit **Make flashcards**. Every card comes out the same shape: a short term on the
+2. Optionally say **which part** you want: `chapter 3, section 2`.
+3. Hit **Make flashcards**. Every card comes out the same shape: a short term on the
    front (1–5 words), the full definition on the back.
-3. Click any card to flip it, or hit **Print** for the paper deck.
+4. Click any card to flip it, or hit **Print** for the paper deck.
+
+## Pointing it at part of a book
+
+Upload the whole textbook and name the part you want. The request is resolved against the
+document's own structure before anything reaches a model, so only that slice is read:
+
+| You type | What happens |
+| --- | --- |
+| `chapter 3, section 2` | Finds section 3.2, or the 2nd section inside chapter 3 |
+| `chapter 4` | The whole chapter, up to the next chapter heading |
+| `section 2.3` or just `2.3` | That numbered section |
+| `Heat Engines` | Matches against heading titles |
+| `pages 100-120`, `slides 4-9` | A page or slide range |
+
+Headings are found by pattern (`Chapter 7`, `3.2 Reaction Kinetics`, `Section 4.1`), and
+the result bar tells you what it actually used — `3.2 Entropy and the Second Law (pages
+84–97)` — so a wrong guess is visible rather than silent. Ask for something that isn't
+there and it says so, listing the chapters it did find. Page numbers are real for PDFs and
+slides; plain text files count as a single page.
+
+**Long documents now refuse rather than truncate.** A whole textbook with no part named
+returns an error telling you to name one, instead of quietly making cards from page one.
 
 ## Printing double-sided
 

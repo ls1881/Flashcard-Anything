@@ -82,6 +82,22 @@ Chunking is what invites invention, so each request also carries a context block
 document's opening plus an acronym glossary harvested from the full text before splitting.
 Chunks overlap by ~320 characters. Temperature is 0.
 
+## Navigation (built)
+
+A whole textbook can be uploaded with a request like "flashcards for chapter 3, section 2".
+Resolution is deterministic and happens before any model call — headings are detected by
+pattern (`Chapter 7`, `3.2 Title`, `Section 4.1`), each carrying a character offset and a
+page number, and the winning heading's extent runs to the next heading of the same or
+higher level. Page/slide ranges work too, since PDFs and .pptx files are extracted per page
+rather than merged.
+
+No retrieval model and no embeddings: a table of contents is cheap to parse, exact, and
+explainable, and the chosen range is reported back so a wrong guess is visible. The
+fallback for unnumbered documents is word overlap against heading titles.
+
+Oversized documents without a scope are now rejected with the detected chapter list rather
+than silently truncated at `chunkChars × MAX_CHUNKS`, which is what used to happen.
+
 ## Open questions
 
 - Richer traceability (page or slide numbers, not just the quoted span).
