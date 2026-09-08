@@ -1,0 +1,98 @@
+[
+  {
+    "id": "paper-unexpanded-acronyms",
+    "note": "URTC is expanded and must be used; MPC and SBR are never expanded, so inventing an expansion is a failure.",
+    "text": "Adaptive Beamforming for Low-Power Edge Radios\n\nThis paper was submitted to the Undergraduate Research and Technology Conference (URTC). The URTC review process requires that every submission include reproducible measurements and a hardware description, and reviewers are instructed to reject any claim that cannot be reproduced from the artifact bundle.\n\nWe evaluate our design against the regulatory framework, by which we mean the specific FCC Part 15 emission limits that constrain transmit power in the 2.4 GHz band. Our prototype remains 6 dB below the regulatory framework ceiling at all steering angles, measured in an anechoic chamber at one metre.\n\nThe beam steering controller uses a phase-shift lookup table stored in on-chip SRAM. Each entry maps a desired azimuth to eight per-element phase offsets, quantized to 4 bits. The table holds 256 entries, giving an angular resolution of roughly 1.4 degrees across the scan range.\n\nOur controller runs an MPC loop at 8 kHz. The MPC loop consumes 11 percent of the die budget and is the largest single consumer of static power in the design. We do not compare against alternative controller families in this work.\n\nThermal throttling engages when the die temperature exceeds 85 degrees Celsius, at which point the controller reduces the duty cycle rather than dropping elements from the array. Dropping elements was rejected because it distorts the beam pattern in ways the calibration table cannot correct.\n\nWe define the settling window as the interval between a steering command and the first sample within 1 degree of the target angle. Median settling window across 400 trials was 240 microseconds, with a 95th percentile of 310 microseconds.\n\nCalibration uses an SBR sequence captured at manufacturing time. The SBR sequence is stored in one-time-programmable fuses and is never regenerated in the field, which means a physically damaged element cannot be compensated for after deployment.\n\nThe array is a 3 by 3 patch grid with half-wavelength spacing. Element spacing was chosen to suppress grating lobes across the full steering range rather than to maximize aperture.\n\nPower gating shuts down unused receive chains between frames. Measured idle draw with power gating enabled is 4.2 milliwatts, compared with 19 milliwatts when the chains are left biased.\n\nOur figure of merit is energy per steered bit, which divides total frame energy by the number of successfully decoded payload bits. We report 3.1 nanojoules per steered bit at the nominal operating point.",
+    "concepts": [
+      { "name": "URTC", "keywords": ["undergraduate", "research", "technology", "conference"] },
+      { "name": "regulatory framework", "keywords": ["fcc", "part 15", "emission"] },
+      { "name": "phase-shift lookup table", "keywords": ["sram", "azimuth", "offsets"] },
+      { "name": "thermal throttling", "keywords": ["duty cycle", "85"] },
+      { "name": "settling window", "keywords": ["steering command", "degree", "240"] },
+      { "name": "power gating", "keywords": ["receive", "idle", "4.2"] },
+      { "name": "energy per steered bit", "keywords": ["frame energy", "decoded", "3.1"] },
+      { "name": "element spacing", "keywords": ["grating", "half-wavelength", "wavelength"] }
+    ],
+    "forbidden": [
+      "transportation corridor",
+      "unified regional",
+      "administrative law",
+      "rulemaking",
+      "model predictive control",
+      "multi-party computation",
+      "communicating sequential",
+      "constraint satisfaction",
+      "step and branch",
+      "signal to background",
+      "sequential bayesian"
+    ]
+  },
+  {
+    "id": "biology-dense",
+    "note": "Straightforward factual prose, but many concepts — measures recall across chunks.",
+    "text": "Cellular Respiration and Its Regulation\n\nGlycolysis is the first stage of cellular respiration. It takes place in the cytoplasm and does not require oxygen. One molecule of glucose is broken into two molecules of pyruvate, producing a net gain of two ATP and two NADH.\n\nPhosphofructokinase is the main control point of glycolysis. It is inhibited by high ATP concentrations and activated by AMP, which lets the cell slow sugar breakdown when energy is already plentiful.\n\nThe link reaction converts pyruvate into acetyl-CoA in the mitochondrial matrix, releasing one carbon dioxide molecule and reducing one NAD+ per pyruvate. It is catalysed by the pyruvate dehydrogenase complex.\n\nThe Krebs cycle, also called the citric acid cycle, occurs in the mitochondrial matrix. Each turn of the cycle releases carbon dioxide and transfers high-energy electrons to NADH and FADH2. Two turns are required per glucose molecule.\n\nThe electron transport chain is embedded in the inner mitochondrial membrane. Electrons from NADH and FADH2 pass along a series of protein complexes, pumping protons into the intermembrane space and creating an electrochemical gradient.\n\nChemiosmosis is the process by which ATP synthase uses the proton gradient to phosphorylate ADP into ATP. This accounts for the large majority of ATP produced during aerobic respiration, roughly 34 molecules per glucose.\n\nThe proton motive force is the combined chemical and electrical gradient across the inner membrane. It stores the energy that chemiosmosis later converts into chemical bonds.\n\nFermentation is the anaerobic pathway that regenerates NAD+ when oxygen is unavailable. In humans, lactic acid fermentation converts pyruvate into lactate in muscle cells during intense exercise.\n\nUncoupling proteins allow protons to re-enter the matrix without passing through ATP synthase. The energy is released as heat instead of being captured as ATP, which is how brown adipose tissue warms the body.\n\nOxidative phosphorylation is the overall term for ATP synthesis driven by electron transport. It is distinguished from substrate-level phosphorylation, in which a phosphate group is transferred directly from a donor molecule to ADP.\n\nThe respiratory quotient is the ratio of carbon dioxide produced to oxygen consumed. It is close to 1.0 for carbohydrate oxidation and nearer 0.7 for fat oxidation.",
+    "concepts": [
+      { "name": "glycolysis", "keywords": ["cytoplasm", "pyruvate"] },
+      { "name": "phosphofructokinase", "keywords": ["control point", "amp", "inhibit"] },
+      { "name": "link reaction", "keywords": ["acetyl", "matrix"] },
+      { "name": "krebs cycle", "keywords": ["matrix", "carbon dioxide"] },
+      { "name": "electron transport chain", "keywords": ["inner", "membrane", "proton"] },
+      { "name": "chemiosmosis", "keywords": ["atp synthase", "gradient"] },
+      { "name": "proton motive force", "keywords": ["gradient", "inner membrane", "energy"] },
+      { "name": "fermentation", "keywords": ["anaerobic", "lactate"] },
+      { "name": "uncoupling proteins", "keywords": ["heat", "matrix", "adipose"] },
+      { "name": "respiratory quotient", "keywords": ["ratio", "oxygen", "0.7"] }
+    ],
+    "forbidden": ["photosynthesis", "chloroplast", "calvin cycle", "thylakoid"]
+  },
+  {
+    "id": "redefined-terms",
+    "note": "Common words redefined against their everyday meaning; catches prior-knowledge leakage.",
+    "text": "Warehouse Robotics Glossary and Operating Protocol\n\nIn this facility, a bank is a contiguous run of twelve storage cells served by one lift. Banks are numbered from the loading dock outward, and no bank may hold more than one hazardous pallet at a time.\n\nA transformer here is the mechanical unit that converts a pallet from euro dimensions to the site's internal footprint. Transformers sit at the head of each aisle and take eleven seconds per pallet.\n\nWe call the daily reconciliation the drift audit. The drift audit compares the physical count in each bank against the ledger and flags any bank whose difference exceeds two units. A flagged bank is frozen until a supervisor clears it.\n\nThe term shuttle refers only to the horizontal carriage; the vertical lift is always called the hoist. A shuttle never leaves its assigned aisle, which is why aisle throughput is bounded by its slowest shuttle.\n\nGolden hour is the ninety-minute window after the morning shift starts, during which no maintenance may be scheduled because throughput demand peaks.\n\nA memory in this protocol is a cached pick route retained by a shuttle after a successful run. Memories expire after four hours or when the bank layout changes, whichever comes first.\n\nThe kernel is the printed operating card mounted inside each aisle controller cabinet. Operators are expected to follow the kernel exactly during a fault, and deviations must be logged.\n\nA harvest is the removal of every pallet from one bank for inspection. Harvests are scheduled quarterly and require the bank to be emptied in descending cell order.\n\nWe measure aisle health with the stall ratio, the fraction of scheduled shuttle moves that did not complete within their allotted slot. A stall ratio above 0.03 triggers a maintenance review.\n\nThe term daylight refers to the vertical clearance between the top of a loaded pallet and the underside of the cell above it. Minimum permitted daylight is forty millimetres.\n\nA convoy is any sequence of three or more shuttles assigned to the same aisle within one slot. Convoys are prohibited during golden hour because they amplify stalls.",
+    "concepts": [
+      { "name": "bank", "keywords": ["twelve", "storage cells", "lift"] },
+      { "name": "transformer", "keywords": ["pallet", "euro", "footprint"] },
+      { "name": "drift audit", "keywords": ["physical count", "ledger", "two units"] },
+      { "name": "shuttle", "keywords": ["horizontal", "carriage", "aisle"] },
+      { "name": "golden hour", "keywords": ["ninety", "maintenance", "throughput"] },
+      { "name": "memory", "keywords": ["pick route", "four hours", "cached"] },
+      { "name": "kernel", "keywords": ["printed", "card", "cabinet"] },
+      { "name": "harvest", "keywords": ["every pallet", "inspection", "quarterly"] },
+      { "name": "stall ratio", "keywords": ["fraction", "allotted", "0.03"] },
+      { "name": "daylight", "keywords": ["clearance", "forty", "millimetres"] },
+      { "name": "convoy", "keywords": ["three or more", "same aisle", "slot"] }
+    ],
+    "forbidden": [
+      "financial institution",
+      "deposit",
+      "neural network",
+      "attention mechanism",
+      "voltage",
+      "electrical",
+      "photography",
+      "sunset",
+      "emergency medicine",
+      "trauma",
+      "operating system",
+      "linux",
+      "random access",
+      "crop",
+      "agricultur"
+    ]
+  },
+  {
+    "id": "figures-and-dates",
+    "note": "Invented policy with specific numbers; a model leaning on priors will drift to real-world figures.",
+    "text": "The Meridian Freight Levy: Programme Notes\n\nThe Meridian Freight Levy was introduced in 2019 as a charge on heavy goods vehicles entering the inner ring. The levy applies only between 06:00 and 10:00 on weekdays and is set at 14 units per axle.\n\nThe inner ring is defined by the 1974 boundary survey and covers 38 square kilometres. It is smaller than the congestion zone it replaced, which covered 51 square kilometres and charged a flat rate regardless of vehicle weight.\n\nExemption class B covers refrigerated vehicles carrying medical supplies. Class B vehicles pay nothing but must register their route 24 hours in advance, and unregistered class B journeys are billed at double the standard rate.\n\nThe levy raised 46 million units in its first full year, of which 60 percent was allocated to road resurfacing and the remainder to the night bus network.\n\nCompliance is measured by the read rate, the share of entering vehicles whose plates are successfully captured by the gantry cameras. The read rate was 91 percent at launch and reached 97 percent after the 2021 camera replacement.\n\nThe scheme's evaluation uses the displacement index, which compares freight volume on the ring road against the four parallel corridors. A displacement index above 1.2 indicates that traffic has moved rather than reduced.\n\nA sunset clause requires the levy to be reauthorised every seven years. The first reauthorisation vote is therefore scheduled for 2026.\n\nOperators with more than forty registered vehicles may join the fleet settlement scheme, which bills monthly in arrears rather than per journey and applies a 3 percent administrative discount.",
+    "concepts": [
+      { "name": "meridian freight levy", "keywords": ["2019", "heavy goods", "axle"] },
+      { "name": "inner ring", "keywords": ["1974", "38", "square"] },
+      { "name": "exemption class b", "keywords": ["refrigerated", "24 hours", "double"] },
+      { "name": "read rate", "keywords": ["plates", "gantry", "91"] },
+      { "name": "displacement index", "keywords": ["parallel", "corridors", "1.2"] },
+      { "name": "sunset clause", "keywords": ["seven years", "reauthoris", "2026"] },
+      { "name": "fleet settlement scheme", "keywords": ["forty", "arrears", "3 percent"] }
+    ],
+    "forbidden": ["london", "stockholm", "singapore", "2003", "ulez", "emissions standard"]
+  }
+]

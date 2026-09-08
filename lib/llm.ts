@@ -8,6 +8,8 @@ export type LlmConfig = {
   provider: ProviderId;
   model: string;
   apiKey?: string;
+  /** Overrides the preset endpoint; required for the "custom" provider. */
+  baseUrl?: string;
 };
 
 export type JsonSchema = Record<string, unknown>;
@@ -162,6 +164,19 @@ function salvageObjects(text: string): unknown[] {
   return out;
 }
 
+function requireConfig(cfg: LlmConfig): void {
+  const info = PROVIDERS[cfg.provider];
+  if (info.needsKey && !cfg.apiKey) {
+    throw new Error(`Add your ${info.label} API key in Settings first.`);
+  }
+  if (info.editableBaseUrl && !baseUrlFor(cfg.provider, cfg.baseUrl)) {
+    throw new Error("Set the base URL for your custom endpoint in Settings.");
+  }
+  if (!cfg.model) {
+    throw new Error(`Choose a ${info.label} model in Settings.`);
+  }
+}
+
 function describeFailure(cfg: LlmConfig, status: number, body: string): Error {
   const p = PROVIDERS[cfg.provider];
   if (status === 401 || status === 403) {
@@ -207,6 +222,8 @@ async function openAiCompatible(
     headers["HTTP-Referer"] = "http://localhost:3000";
     headers["X-Title"] = "Flashcard Anything";
   }
+  // Gemini's OpenAI-compatible endpoint also accepts the key as a header.
+  if (cfg.provider === "google" && cfg.apiKey) headers["x-goog-api-key"] = cfg.apiKey;
 
   const base = {
     model: cfg.model,
@@ -236,7 +253,7 @@ async function openAiCompatible(
   for (const body of attempts) {
     let res: Response;
     try {
-      res = await fetch(`${baseUrlFor(cfg.provider)}/chat/completions`, {
+      res = await fetch(`${baseUrlFor(cfg.provider, cfg.baseUrl)}/chat/completions`, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
@@ -280,7 +297,7 @@ async function ollamaNative(
     .filter((p): p is { type: "image_url"; image_url: { url: string } } => p.type === "image_url")
     .map((p) => p.image_url.url.replace(/^data:[^;]+;base64,/, ""));
 
-  const root = baseUrlFor("ollama").replace(/\/v1$/, "");
+  const root = baseUrlFor("ollama", cfg.baseUrl).replace(/\/v1$/, "");
   let res: Response;
   try {
     res = await fetch(`${root}/api/chat`, {
@@ -324,7 +341,7 @@ function anthropicContent(parts: Part[]) {
 async function anthropicRaw(cfg: LlmConfig, system: string, parts: Part[]): Promise<string> {
   let res: Response;
   try {
-    res = await fetch(`${PROVIDERS.anthropic.baseUrl}/v1/messages`, {
+    res = await fetch(`${baseUrlFor("anthropic", cfg.baseUrl)}/v1/messages`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -367,7 +384,7 @@ async function anthropic(
 
   let res: Response;
   try {
-    res = await fetch(`${PROVIDERS.anthropic.baseUrl}/v1/messages`, {
+    res = await fetch(`${baseUrlFor("anthropic", cfg.baseUrl)}/v1/messages`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -405,20 +422,36 @@ async function anthropic(
   throw new Error("Claude returned nothing usable.");
 }
 
-/** Server-side only: lets Ollama live on another host or port. */
-export function baseUrlFor(provider: ProviderId): string {
+/** The endpoint actually used: caller override, then env, then the preset. */
+export function baseUrlFor(provider: ProviderId, override?: string): string {
+  const trimmed = override?.trim();
+  if (trimmed) return trimmed.replace(/\/+$/, "");
   if (provider === "ollama" && process.env.OLLAMA_URL) {
     return process.env.OLLAMA_URL.replace(/\/+$/, "");
+  }
+  if (provider === "custom" && process.env.CUSTOM_LLM_URL) {
+    return process.env.CUSTOM_LLM_URL.replace(/\/+$/, "");
   }
   return PROVIDERS[provider].baseUrl;
 }
 
+const ENV_KEYS: Partial<Record<ProviderId, string>> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  openai: "OPENAI_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+  google: "GOOGLE_API_KEY",
+  groq: "GROQ_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+  mistral: "MISTRAL_API_KEY",
+  together: "TOGETHER_API_KEY",
+  custom: "CUSTOM_LLM_API_KEY",
+};
+
 export function resolveKey(provider: ProviderId, fromClient?: string): string | undefined {
   const trimmed = fromClient?.trim();
   if (trimmed) return trimmed;
-  if (provider === "anthropic") return process.env.ANTHROPIC_API_KEY;
-  if (provider === "openrouter") return process.env.OPENROUTER_API_KEY;
-  return undefined;
+  const envName = ENV_KEYS[provider];
+  return envName ? process.env[envName] : undefined;
 }
 
 /**
@@ -426,11 +459,10 @@ export function resolveKey(provider: ProviderId, fromClient?: string): string | 
  * forcing it through a JSON string only creates escaping problems with maths and code.
  */
 export async function completeText(cfg: LlmConfig, system: string, parts: Part[]): Promise<string> {
-  if (PROVIDERS[cfg.provider].needsKey && !cfg.apiKey) {
-    throw new Error(`Add your ${PROVIDERS[cfg.provider].label} API key in Settings first.`);
-  }
+  requireConfig(cfg);
 
-  if (cfg.provider === "ollama") {
+  const style = PROVIDERS[cfg.provider].style;
+  if (style === "ollama") {
     const text = parts
       .filter((p): p is { type: "text"; text: string } => p.type === "text")
       .map((p) => p.text)
@@ -439,7 +471,7 @@ export async function completeText(cfg: LlmConfig, system: string, parts: Part[]
       .filter((p): p is { type: "image_url"; image_url: { url: string } } => p.type === "image_url")
       .map((p) => p.image_url.url.replace(/^data:[^;]+;base64,/, ""));
 
-    const root = baseUrlFor("ollama").replace(/\/v1$/, "");
+    const root = baseUrlFor("ollama", cfg.baseUrl).replace(/\/v1$/, "");
     let res: Response;
     try {
       res = await fetch(`${root}/api/chat`, {
@@ -464,7 +496,7 @@ export async function completeText(cfg: LlmConfig, system: string, parts: Part[]
     return stripFences(String(data?.message?.content ?? ""));
   }
 
-  if (cfg.provider === "anthropic") {
+  if (style === "anthropic") {
     const raw = await anthropicRaw(cfg, system, parts);
     return stripFences(raw);
   }
@@ -473,7 +505,7 @@ export async function completeText(cfg: LlmConfig, system: string, parts: Part[]
   if (cfg.apiKey) headers.authorization = `Bearer ${cfg.apiKey}`;
   let res: Response;
   try {
-    res = await fetch(`${baseUrlFor(cfg.provider)}/chat/completions`, {
+    res = await fetch(`${baseUrlFor(cfg.provider, cfg.baseUrl)}/chat/completions`, {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -504,7 +536,8 @@ export async function completeJson(
   if (PROVIDERS[cfg.provider].needsKey && !cfg.apiKey) {
     throw new Error(`Add your ${PROVIDERS[cfg.provider].label} API key in Settings first.`);
   }
-  if (cfg.provider === "anthropic") return anthropic(cfg, system, parts, schema, schemaName);
-  if (cfg.provider === "ollama") return ollamaNative(cfg, system, parts, schema);
+  const style = PROVIDERS[cfg.provider].style;
+  if (style === "anthropic") return anthropic(cfg, system, parts, schema, schemaName);
+  if (style === "ollama") return ollamaNative(cfg, system, parts, schema);
   return openAiCompatible(cfg, system, parts, schema, schemaName);
 }

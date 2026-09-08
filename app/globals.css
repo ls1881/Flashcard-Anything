@@ -1,10 +1,53 @@
 :root {
+  color-scheme: light;
   --bg: #f6f6f8;
   --panel: #ffffff;
   --ink: #16161a;
   --muted: #6b6b76;
   --line: #e2e2e8;
   --accent: #4f46e5;
+  --field: #ffffff;
+  --track: #f1f1f5;
+  --error-bg: #fef2f2;
+  --error-line: #fecaca;
+  --error-ink: #b42318;
+  --shadow: rgba(0, 0, 0, 0.08);
+}
+
+/* Dark tokens live in one block, applied when the OS asks for dark and the user hasn't
+   overridden it, and again when the user explicitly picks dark. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #101013;
+    --panel: #1a1a1f;
+    --ink: #ececf1;
+    --muted: #9a9aa6;
+    --line: #2e2e37;
+    --accent: #8b85f5;
+    --field: #16161b;
+    --track: #232329;
+    --error-bg: #2a1618;
+    --error-line: #5d2b2f;
+    --error-ink: #ff9a94;
+    --shadow: rgba(0, 0, 0, 0.5);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #101013;
+  --panel: #1a1a1f;
+  --ink: #ececf1;
+  --muted: #9a9aa6;
+  --line: #2e2e37;
+  --accent: #8b85f5;
+  --field: #16161b;
+  --track: #232329;
+  --error-bg: #2a1618;
+  --error-line: #5d2b2f;
+  --error-ink: #ff9a94;
+  --shadow: rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -62,7 +105,7 @@ body {
 .drop:hover,
 .drop.over {
   border-color: var(--accent);
-  background: #f5f4ff;
+  background: var(--track);
 }
 
 .drop strong {
@@ -84,7 +127,7 @@ body {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 14px 16px;
-  background: #fafaff;
+  background: var(--track);
 }
 
 .chosen b {
@@ -122,7 +165,7 @@ textarea {
   padding: 14px;
   font: inherit;
   color: inherit;
-  background: #fff;
+  background: var(--field);
 }
 
 textarea:focus {
@@ -153,7 +196,7 @@ button:disabled {
 }
 
 .ghost {
-  background: #fff;
+  background: var(--panel);
   border-color: var(--line);
   color: var(--ink);
   font-weight: 550;
@@ -171,9 +214,9 @@ button:disabled {
   margin-top: 16px;
   padding: 12px 14px;
   border-radius: 10px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #b42318;
+  background: var(--error-bg);
+  border: 1px solid var(--error-line);
+  color: var(--error-ink);
   font-size: 14px;
 }
 
@@ -204,7 +247,7 @@ select {
   padding: 8px 10px;
   border-radius: 9px;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--field);
   color: var(--ink);
 }
 
@@ -261,7 +304,7 @@ select {
 .face-back {
   transform: rotateY(180deg);
   font-size: 14px;
-  color: #33333c;
+  color: var(--ink);
   line-height: 1.5;
 }
 
@@ -278,7 +321,7 @@ select {
   border-radius: 10px;
   font: inherit;
   font-size: 14px;
-  background: #fff;
+  background: var(--field);
   color: inherit;
 }
 
@@ -322,7 +365,7 @@ select {
   gap: 6px;
   padding: 4px;
   border-radius: 10px;
-  background: #f1f1f5;
+  background: var(--track);
 }
 
 .seg button {
@@ -336,10 +379,10 @@ select {
 }
 
 .seg button.on {
-  background: #fff;
+  background: var(--panel);
   color: var(--ink);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 2px var(--shadow);
 }
 
 .blurb {
@@ -369,14 +412,15 @@ select {
   color: var(--accent);
 }
 
-.field input {
+.field input,
+.field select {
   width: 100%;
   padding: 9px 11px;
   border: 1px solid var(--line);
   border-radius: 9px;
   font: inherit;
   font-size: 13px;
-  background: #fff;
+  background: var(--field);
   color: inherit;
 }
 
@@ -393,7 +437,7 @@ select {
 }
 
 .note code {
-  background: #f1f1f5;
+  background: var(--track);
   padding: 1px 4px;
   border-radius: 4px;
 }
@@ -451,8 +495,11 @@ select {
     display: block;
   }
 
-  body {
+  /* Paper is white whatever the screen theme is. */
+  body,
+  .sheet {
     background: #fff;
+    color: #000;
   }
 }
 

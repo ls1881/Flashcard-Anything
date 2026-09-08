@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import PrintSheets from "@/components/PrintSheets";
-import SettingsPanel, { keyFor, modelFor } from "@/components/Settings";
+import SettingsPanel, { baseUrlFor, keyFor, modelFor } from "@/components/Settings";
 import { DEFAULT_SETTINGS, PROVIDERS, type Settings } from "@/lib/providers";
 import type { Card, FlipEdge } from "@/lib/duplex";
 
@@ -42,6 +42,13 @@ export default function Home() {
     }
   }, []);
 
+  // "system" leaves the attribute off so the CSS media query decides.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (settings.theme === "system") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", settings.theme);
+  }, [settings.theme]);
+
   function updateSettings(next: Settings) {
     setSettings(next);
     try {
@@ -65,6 +72,8 @@ export default function Home() {
       body.append("provider", settings.provider);
       body.append("model", modelFor(settings));
       body.append("apiKey", keyFor(settings));
+      const custom = baseUrlFor(settings);
+      if (custom) body.append("baseUrl", custom);
 
       const res = await fetch("/api/generate", { method: "POST", body });
       if (!res.ok) {
@@ -115,6 +124,28 @@ export default function Home() {
     setError(null);
   }
 
+  function exportJson() {
+    if (!cards) return;
+    const payload = {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      source: file?.name ?? "pasted text",
+      scope: scopeUsed,
+      model: { provider: settings.provider, name: modelFor(settings) },
+      count: cards.length,
+      cards: cards.map(({ term, definition, evidence }) => ({ term, definition, evidence })),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${(file?.name ?? "flashcards").replace(/\.[^.]+$/, "")}.flashcards.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   function toggle(i: number) {
     setFlipped((prev) => {
       const next = new Set(prev);
@@ -153,6 +184,9 @@ export default function Home() {
             </label>
             <button className="ghost" onClick={() => window.print()}>
               Print
+            </button>
+            <button className="ghost" onClick={exportJson}>
+              Export JSON
             </button>
             <button className="ghost" onClick={reset}>
               Start over

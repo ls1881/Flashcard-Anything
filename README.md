@@ -6,14 +6,27 @@ Drop in a file of any supported format, get the same output every time: a deck y
 flip through on screen, and a double-sided print layout where every definition lands
 exactly behind its own term.
 
-Works with a **local model** (free, private, no key) or a **cloud API** if you want better
-cards. Pick in the app under **Change** — no config files required.
+Works with a **local model** (free, private, no key) or any **cloud provider**. Pick in the
+app under **Change** — no config files required.
 
-| Provider | Key needed | Notes |
+| Provider | Key | Notes |
 | --- | --- | --- |
 | **Ollama** (default) | No | Runs on your machine. Free and private. |
+| **Anthropic** | Yes | Claude direct. |
+| **OpenAI** | Yes | GPT models. |
 | **OpenRouter** | Yes | One key, hundreds of models. |
-| **Anthropic** | Yes | Claude direct. Best card quality. |
+| **Google** | Yes | Gemini, via its OpenAI-compatible endpoint. |
+| **Groq** | Yes | Open models, very fast. |
+| **DeepSeek**, **Mistral**, **Together** | Yes | Hosted models. |
+| **Custom** | Optional | Any OpenAI-compatible URL — vLLM, LM Studio, llama.cpp, a gateway. |
+
+Adding a provider is a preset in [`lib/providers.ts`](lib/providers.ts), not new client
+code: everything except Anthropic and Ollama speaks OpenAI's dialect, and **Custom** covers
+anything not listed. Keys can also come from the environment — `ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`,
+`DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `TOGETHER_API_KEY`, `CUSTOM_LLM_API_KEY`.
+
+**Appearance** (system / light / dark) is in the same panel.
 
 ## Setup
 
@@ -95,6 +108,44 @@ fed to the model as garbage.
 
 Everything normalizes to the same `{ term, definition }` list, which drives both the
 on-screen deck and the print sheets.
+
+## Exporting
+
+**Export JSON** downloads the deck in a stable, documented shape, so other tools can read
+it without scraping the page:
+
+```json
+{
+  "version": 1,
+  "generatedAt": "2026-09-08T14:03:11.000Z",
+  "source": "lecture8.pdf",
+  "scope": "3.2 Entropy and the Second Law (pages 84–97)",
+  "model": { "provider": "ollama", "name": "qwen3:8b" },
+  "count": 2,
+  "cards": [
+    {
+      "term": "Chemiosmosis",
+      "definition": "ATP synthase uses the proton gradient to phosphorylate ADP into ATP.",
+      "evidence": "Chemiosmosis is the process by which ATP synthase uses the proton gradient"
+    }
+  ]
+}
+```
+
+`version` is bumped on any breaking change to the shape. `scope` is `null` when the whole
+document was used. `evidence` is the span the card was checked against, which is useful for
+auditing a deck but can be ignored.
+
+The same JSON comes back from the API, so a script can skip the UI entirely:
+
+```bash
+curl -s -N -X POST http://localhost:3000/api/generate \
+  -F "file=@notes.pdf" -F "scope=chapter 3" \
+  -F "provider=ollama" -F "model=qwen3:8b" | tail -1
+```
+
+The endpoint streams newline-delimited JSON: `{"type":"progress",…}` lines while it works,
+then a final `{"type":"result","cards":[…]}` or `{"type":"error","error":"…"}`.
 
 ## Staying grounded in your source
 
