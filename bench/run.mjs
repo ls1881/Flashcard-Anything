@@ -6,7 +6,7 @@
  * cannot score well by trusting itself:
  *
  *   grounded   share of cards whose definition's content words appear in the source
- *   traps      share of cards free of planted prior-knowledge phrases (higher is better)
+ *   traps      count of planted prior-knowledge phrases that leaked in (lower is better)
  *   coverage   share of the case's key concepts that some card actually teaches
  *   fronts     share of terms that are 1-5 words, as a card front should be
  *   seconds    wall clock

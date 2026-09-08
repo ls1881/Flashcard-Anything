@@ -26,6 +26,7 @@ export default function Home() {
   } | null>(null);
   const [audit, setAudit] = useState<{ dropped: number; fixed: number } | null>(null);
   const [scopeUsed, setScopeUsed] = useState<string | null>(null);
+  const [usedModel, setUsedModel] = useState<{ provider: string; name: string } | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -104,6 +105,7 @@ export default function Home() {
             setCards(msg.cards as Card[]);
             setAudit({ dropped: msg.dropped ?? 0, fixed: msg.fixed ?? 0 });
             setScopeUsed(msg.scope ?? null);
+            setUsedModel({ provider: settings.provider, name: modelFor(settings) });
             setFlipped(new Set());
           }
         }
@@ -131,7 +133,7 @@ export default function Home() {
       generatedAt: new Date().toISOString(),
       source: file?.name ?? "pasted text",
       scope: scopeUsed,
-      model: { provider: settings.provider, name: modelFor(settings) },
+      model: usedModel ?? { provider: settings.provider, name: modelFor(settings) },
       count: cards.length,
       cards: cards.map(({ term, definition, evidence }) => ({ term, definition, evidence })),
     };

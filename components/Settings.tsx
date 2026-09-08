@@ -45,25 +45,32 @@ export default function SettingsPanel({
   const baseUrl = baseUrlFor(settings);
 
   // Suggest real model names per provider; the field stays free text either way.
+  // Debounced because the key and URL are typed: firing per keystroke would send a
+  // hundred rejected requests to the provider and risk rate limiting.
   useEffect(() => {
     let cancelled = false;
     setSuggestions([]);
     setNote(null);
-    const params = new URLSearchParams({ provider });
-    if (key) params.set("key", key);
-    if (baseUrl) params.set("baseUrl", baseUrl);
-    fetch(`/api/models?${params}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled) return;
-        setSuggestions(data.models ?? []);
-        setNote(data.note ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setNote("Couldn't list models — you can still type one in.");
-      });
+
+    const timer = setTimeout(() => {
+      const params = new URLSearchParams({ provider });
+      if (key) params.set("key", key);
+      if (baseUrl) params.set("baseUrl", baseUrl);
+      fetch(`/api/models?${params}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (cancelled) return;
+          setSuggestions(data.models ?? []);
+          setNote(data.note ?? null);
+        })
+        .catch(() => {
+          if (!cancelled) setNote("Couldn't list models — you can still type one in.");
+        });
+    }, 500);
+
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [provider, key, baseUrl]);
 
@@ -151,7 +158,7 @@ export default function SettingsPanel({
         </p>
       )}
 
-      <label className="field">
+      <div className="field">
         <span>Appearance</span>
         <div className="seg">
           {THEMES.map((t) => (
@@ -164,7 +171,7 @@ export default function SettingsPanel({
             </button>
           ))}
         </div>
-      </label>
+      </div>
 
       <button className="ghost done" onClick={onClose}>
         Done
