@@ -17,7 +17,13 @@ export default function Home() {
   const [over, setOver] = useState(false);
   const [flip, setFlip] = useState<FlipEdge>("long");
   const [flipped, setFlipped] = useState<Set<number>>(new Set());
-  const [progress, setProgress] = useState<{ done: number; total: number; cards: number } | null>(null);
+  const [progress, setProgress] = useState<{
+    phase: "reading" | "checking";
+    done: number;
+    total: number;
+    cards: number;
+  } | null>(null);
+  const [audit, setAudit] = useState<{ dropped: number; fixed: number } | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -48,6 +54,7 @@ export default function Home() {
     setBusy(true);
     setError(null);
     setProgress(null);
+    setAudit(null);
     try {
       const body = new FormData();
       if (file) body.append("file", file);
@@ -83,6 +90,7 @@ export default function Home() {
           else if (msg.type === "error") throw new Error(msg.error);
           else if (msg.type === "result") {
             setCards(msg.cards as Card[]);
+            setAudit({ dropped: msg.dropped ?? 0, fixed: msg.fixed ?? 0 });
             setFlipped(new Set());
           }
         }
@@ -116,7 +124,20 @@ export default function Home() {
       <>
         <div className="wrap screen">
           <div className="bar">
-            <span className="count">{cards.length} flashcards</span>
+            <span className="count">
+              {cards.length} flashcards
+              {audit && (audit.dropped > 0 || audit.fixed > 0) && (
+                <span className="checked">
+                  {" · "}
+                  {[
+                    audit.fixed > 0 && `${audit.fixed} corrected`,
+                    audit.dropped > 0 && `${audit.dropped} unsupported removed`,
+                  ]
+                    .filter(Boolean)
+                    .join(", ")}
+                </span>
+              )}
+            </span>
             <label className="edge">
               Flip on
               <select value={flip} onChange={(e) => setFlip(e.target.value as FlipEdge)}>
@@ -169,10 +190,12 @@ export default function Home() {
         {busy ? (
           <div className="loading">
             <div className="spinner" />
-            {progress && progress.total > 1
-              ? `Section ${Math.min(progress.done + 1, progress.total)} of ${progress.total}${
-                  progress.cards ? ` · ${progress.cards} cards so far` : ""
-                }`
+            {progress
+              ? `${progress.phase === "checking" ? "Checking accuracy" : "Reading"}${
+                  progress.total > 1
+                    ? ` · section ${Math.min(progress.done + 1, progress.total)} of ${progress.total}`
+                    : ""
+                }${progress.cards ? ` · ${progress.cards} cards so far` : ""}`
               : "Reading your material and writing cards…"}
             <div className="sub">
               {settings.provider === "ollama"

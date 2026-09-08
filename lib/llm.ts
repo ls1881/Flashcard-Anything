@@ -10,7 +10,9 @@ export type LlmConfig = {
   apiKey?: string;
 };
 
-const CARD_SCHEMA = {
+export type JsonSchema = Record<string, unknown>;
+
+export const CARD_SCHEMA = {
   type: "object" as const,
   properties: {
     cards: {
@@ -19,9 +21,17 @@ const CARD_SCHEMA = {
         type: "object",
         properties: {
           term: { type: "string", description: "1-5 words. The concept only, never a sentence." },
-          definition: { type: "string", description: "1-3 sentences, under 45 words." },
+          definition: {
+            type: "string",
+            description: "1-3 sentences, under 45 words, built only from the source text.",
+          },
+          evidence: {
+            type: "string",
+            description:
+              "A short span copied word-for-word from the source that states this. Must appear verbatim in the text.",
+          },
         },
-        required: ["term", "definition"],
+        required: ["term", "definition", "evidence"],
       },
     },
   },
@@ -92,8 +102,13 @@ function connectionError(cfg: LlmConfig, err: unknown): Error {
 }
 
 /** Ollama, OpenRouter, and anything else speaking /chat/completions. */
-async function openAiCompatible(cfg: LlmConfig, system: string, parts: Part[]): Promise<unknown> {
-  const p = PROVIDERS[cfg.provider];
+async function openAiCompatible(
+  cfg: LlmConfig,
+  system: string,
+  parts: Part[],
+  schema: JsonSchema,
+  schemaName: string
+): Promise<unknown> {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (cfg.apiKey) headers.authorization = `Bearer ${cfg.apiKey}`;
   if (cfg.provider === "openrouter") {
@@ -103,7 +118,7 @@ async function openAiCompatible(cfg: LlmConfig, system: string, parts: Part[]): 
 
   const base = {
     model: cfg.model,
-    temperature: 0.2,
+    temperature: 0,
     stream: false,
     messages: [
       { role: "system", content: system },
@@ -117,7 +132,7 @@ async function openAiCompatible(cfg: LlmConfig, system: string, parts: Part[]): 
       ...base,
       response_format: {
         type: "json_schema",
-        json_schema: { name: "flashcards", strict: true, schema: CARD_SCHEMA },
+        json_schema: { name: schemaName, strict: true, schema },
       },
     },
     { ...base, response_format: { type: "json_object" } },
@@ -128,7 +143,7 @@ async function openAiCompatible(cfg: LlmConfig, system: string, parts: Part[]): 
   for (const body of attempts) {
     let res: Response;
     try {
-      res = await fetch(`${p.baseUrl}/chat/completions`, {
+      res = await fetch(`${baseUrlFor(cfg.provider)}/chat/completions`, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
@@ -153,7 +168,13 @@ async function openAiCompatible(cfg: LlmConfig, system: string, parts: Part[]): 
 }
 
 /** Anthropic's Messages API, using a tool call so the JSON comes back well-formed. */
-async function anthropic(cfg: LlmConfig, system: string, parts: Part[]): Promise<unknown> {
+async function anthropic(
+  cfg: LlmConfig,
+  system: string,
+  parts: Part[],
+  schema: JsonSchema,
+  schemaName: string
+): Promise<unknown> {
   const content = parts.map((part) => {
     if (part.type === "text") return { type: "text", text: part.text };
     const match = /^data:([^;]+);base64,(.+)$/.exec(part.image_url.url);
@@ -176,16 +197,17 @@ async function anthropic(cfg: LlmConfig, system: string, parts: Part[]): Promise
       body: JSON.stringify({
         model: cfg.model,
         max_tokens: 8000,
+        temperature: 0,
         system,
         messages: [{ role: "user", content }],
         tools: [
           {
-            name: "emit_flashcards",
-            description: "Return the finished set of flashcards.",
-            input_schema: CARD_SCHEMA,
+            name: schemaName,
+            description: "Return the result.",
+            input_schema: schema,
           },
         ],
-        tool_choice: { type: "tool", name: "emit_flashcards" },
+        tool_choice: { type: "tool", name: schemaName },
       }),
     });
   } catch (err) {
@@ -203,6 +225,14 @@ async function anthropic(cfg: LlmConfig, system: string, parts: Part[]): Promise
   throw new Error("Claude returned nothing usable.");
 }
 
+/** Server-side only: lets Ollama live on another host or port. */
+export function baseUrlFor(provider: ProviderId): string {
+  if (provider === "ollama" && process.env.OLLAMA_URL) {
+    return process.env.OLLAMA_URL.replace(/\/+$/, "");
+  }
+  return PROVIDERS[provider].baseUrl;
+}
+
 export function resolveKey(provider: ProviderId, fromClient?: string): string | undefined {
   const trimmed = fromClient?.trim();
   if (trimmed) return trimmed;
@@ -211,11 +241,17 @@ export function resolveKey(provider: ProviderId, fromClient?: string): string | 
   return undefined;
 }
 
-export async function completeJson(cfg: LlmConfig, system: string, parts: Part[]): Promise<unknown> {
+export async function completeJson(
+  cfg: LlmConfig,
+  system: string,
+  parts: Part[],
+  schema: JsonSchema = CARD_SCHEMA,
+  schemaName = "emit_flashcards"
+): Promise<unknown> {
   if (PROVIDERS[cfg.provider].needsKey && !cfg.apiKey) {
     throw new Error(`Add your ${PROVIDERS[cfg.provider].label} API key in Settings first.`);
   }
   return cfg.provider === "anthropic"
-    ? anthropic(cfg, system, parts)
-    : openAiCompatible(cfg, system, parts);
+    ? anthropic(cfg, system, parts, schema, schemaName)
+    : openAiCompatible(cfg, system, parts, schema, schemaName);
 }

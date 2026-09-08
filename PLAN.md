@@ -57,8 +57,33 @@ every definition lands behind its own term once the paper flips:
 Both sides render into an identical fixed grid, so cut lines register on each side. Logic
 lives in `lib/duplex.ts`; the flip edge is the app's one print setting.
 
-## Open questions to settle before/while building
+## Grounding (built)
 
-- Chunking strategy for long PDFs/decks (how many cards per section, how to avoid duplicates across chunks).
-- How much source traceability to keep (e.g., "this card came from slide 12") — useful for review but adds complexity.
-- Whether pptx support ships in v1 or gets deferred behind PDF export as a workaround.
+Cards must describe what the *source* says, not what the model already believes. Two model
+roles, with mechanical checks between them:
+
+1. **Writer** — turns a section into cards, each carrying an `evidence` span quoted from
+   the text.
+2. **Evidence check** (code, not a model) — verifies the span appears in what the writer
+   was shown: normalized substring, falling back to 85% word overlap. Catches invention,
+   which shares almost no vocabulary with the source. Cheap, so it runs first and keeps
+   junk out of the reviewer's context.
+3. **Reviewer** — re-reads the section and judges each surviving card `ok` / `fix` / `drop`,
+   returning corrected text for fixes. Catches the case the evidence check cannot: a real
+   quote paired with a definition that misstates it. Best-effort — if it fails, the
+   writer's cards are kept.
+
+Roles are batched per chunk, not per card: two calls per section regardless of card count.
+A third pass was considered (a whole-deck curator for coverage and near-duplicates) and
+skipped — on a local model each pass is real wall-clock time, and deterministic dedupe plus
+the writer's own section-by-section coverage already handle most of it.
+
+Chunking is what invites invention, so each request also carries a context block: the
+document's opening plus an acronym glossary harvested from the full text before splitting.
+Chunks overlap by ~320 characters. Temperature is 0.
+
+## Open questions
+
+- Richer traceability (page or slide numbers, not just the quoted span).
+- Whether a whole-deck curator pass earns its latency on cloud providers, where it's cheap.
+- Whether the reviewer should run twice on low-confidence cards rather than once on all.

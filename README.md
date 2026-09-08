@@ -66,6 +66,35 @@ match on each side of the paper.
 Everything normalizes to the same `{ term, definition }` list, which drives both the
 on-screen deck and the print sheets.
 
+## Staying grounded in your source
+
+Models like to answer from prior knowledge — asked about "URTC" in a conference paper, one
+will happily invent "Unified Regional Transportation Corridor." Cards go through two model
+passes and two mechanical checks before you see them.
+
+**Pass 1 — write.** Each section is turned into cards. Every card must also return an
+`evidence` span quoted from the text.
+
+**Check — is the quote real?** The server verifies that span actually appears in what the
+model was shown (normalized substring, falling back to 85% word overlap). Invented content
+shares almost no vocabulary with the source, so it fails here and is dropped.
+
+**Pass 2 — review.** A quote being real doesn't mean the definition says what the quote
+says. A second call re-reads the section and judges each card: `ok`, `fix` (with a
+corrected definition drawn only from the source), or `drop`. Cards get repaired, not just
+discarded — a definition claiming a controller "drops elements from the array" when the
+paper says it does the opposite comes back corrected. If the reviewer errors out, the
+first-pass cards are kept rather than losing the deck.
+
+**Context, so chunks don't invite invention.** Acronym expansions (`URTC = Undergraduate
+Research and Technology Conference`) are harvested from the whole document before splitting
+and attached to every request, so a term defined on page 1 is still understood on page 9.
+Chunks overlap ~320 characters. Temperature is 0.
+
+The results bar reports what the review changed — "3 corrected, 1 unsupported removed".
+Review runs on text sources; image sources skip it, since there's no extracted text to
+check against.
+
 Local models have small context windows, so long material is split on paragraph boundaries
 and turned into cards a section at a time, with progress streamed back to the page and
 duplicate terms merged out. Cloud providers get much larger chunks, so they usually finish

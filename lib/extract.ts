@@ -101,11 +101,53 @@ export async function fileToSource(file: File): Promise<Source> {
   return { kind: "text", text: `Source document "${name}":\n\n${text}` };
 }
 
+/** Does `acro` read as the initials of `expansion`, allowing skipped filler words? */
+function initialsMatch(expansion: string, acro: string): boolean {
+  const words = expansion.split(/[\s-]+/).filter(Boolean);
+  const letters = acro.replace(/s$/, "").toUpperCase().split("");
+  let w = 0;
+  for (const letter of letters) {
+    let found = false;
+    while (w < words.length) {
+      if (words[w++][0]?.toUpperCase() === letter) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) return false;
+  }
+  return true;
+}
+
+/**
+ * Harvest "Expansion Words (ACRONYM)" pairs from the whole document. Chunking otherwise
+ * strands an acronym in a later section with nothing to define it, and the model fills
+ * the gap from its own priors instead of the paper.
+ */
+export function buildGlossary(text: string): string[] {
+  const found = new Map<string, string>();
+
+  const forward = /([A-Z][\w'’-]*(?:[\s-]+[\w'’-]+){0,7})\s*\(([A-Z][A-Za-z]{1,7})s?\)/g;
+  for (const m of text.matchAll(forward)) {
+    const [, expansion, acro] = m;
+    if (!found.has(acro) && initialsMatch(expansion, acro)) found.set(acro, expansion.trim());
+  }
+
+  const backward = /\b([A-Z]{2,7})\s*\(([^)]{5,90})\)/g;
+  for (const m of text.matchAll(backward)) {
+    const [, acro, expansion] = m;
+    if (!found.has(acro) && initialsMatch(expansion, acro)) found.set(acro, expansion.trim());
+  }
+
+  return [...found].map(([acro, expansion]) => `${acro} = ${expansion}`);
+}
+
 /**
  * Local models have small context windows, so long material is split on paragraph
- * boundaries and turned into cards a piece at a time.
+ * boundaries and turned into cards a piece at a time. Chunks overlap slightly so a
+ * definition sitting on a boundary isn't cut away from the term it defines.
  */
-export function chunkText(text: string, maxChars = 3500, maxChunks = 16): string[] {
+export function chunkText(text: string, maxChars = 3500, maxChunks = 16, overlap = 320): string[] {
   const paragraphs = text.split(/\n{2,}/);
   const chunks: string[] = [];
   let current = "";
@@ -127,5 +169,8 @@ export function chunkText(text: string, maxChars = 3500, maxChunks = 16): string
   }
   if (current.trim()) chunks.push(current.trim());
 
-  return chunks.filter(Boolean).slice(0, maxChunks);
+  const trimmed = chunks.filter(Boolean).slice(0, maxChunks);
+  return trimmed.map((chunk, i) =>
+    i === 0 ? chunk : `${trimmed[i - 1].slice(-overlap)}\n\n${chunk}`
+  );
 }

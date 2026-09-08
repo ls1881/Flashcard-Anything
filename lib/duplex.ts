@@ -1,4 +1,9 @@
-export type Card = { term: string; definition: string };
+export type Card = {
+  term: string;
+  definition: string;
+  /** Verbatim span from the source that supports the definition. */
+  evidence?: string;
+};
 
 /** Letter portrait, 0.5in margins, cards tile edge-to-edge at 3.75in x 3.3333in. */
 export const COLS = 2;
