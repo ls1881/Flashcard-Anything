@@ -219,4 +219,5 @@ page, so cards come from the content rather than the margins.
 - [`lib/duplex.ts`](lib/duplex.ts) — the front/back mirroring math
 - [`app/globals.css`](app/globals.css) — screen styles and the `@page` print layout
 
-See [PLAN.md](PLAN.md) for the roadmap.
+See [PLAN.md](PLAN.md) for how it works and why, and [ROADMAP.md](ROADMAP.md) for
+what's planned next.

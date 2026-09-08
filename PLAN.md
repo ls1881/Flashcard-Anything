@@ -17,40 +17,29 @@ Convert slideshows, PDFs, textbook chapters, notes, and images into flashcards, 
 
 ## Not built yet
 
-Everything below is still plan, not code: there is no database, no persistence, and no
-study scheduler. A deck lives in the page until it is printed or exported.
-
-## Data model (planned)
-
-```
-Deck
-  id, title, createdAt, sourceType (pdf | pptx | image | text | url)
-
-Card
-  id, deckId, front, back, sourceExcerpt (optional, for traceability),
-  easeFactor, interval, dueDate   -- SM-2 spaced-repetition fields
-```
+There is no database and no persistence: a deck lives in the page until it is printed or
+exported. Cards cannot be edited or regenerated individually. There is no study scheduler,
+and one is not planned — see [ROADMAP.md](ROADMAP.md), which argues for exporting to Anki
+instead of reimplementing spaced repetition here.
 
 ## Core flow
 
-1. User uploads a file (PDF, pptx, docx, epub, rtf, html, text, or an image) or pastes text, optionally naming the part they want.
-2. Backend normalizes the input to text, strips page furniture, and resolves any requested chapter/section/page range.
-3. Call the chosen model with the content, asking for `{term, definition, evidence}` cards as structured JSON, chunking long documents so each call stays in context and covers one section.
-4. Show generated cards in an editable review screen — user can edit, delete, merge, or regenerate individual cards before saving.
-5. Save the deck; cards enter a spaced-repetition queue (SM-2: correct → interval grows, wrong → resets).
-6. Study mode: pull due cards, show front, reveal back, user grades recall (again/hard/good/easy), reschedule.
+1. User uploads a file (PDF, pptx, docx, epub, rtf, html, text, or an image) or pastes text,
+   optionally naming the part they want.
+2. Backend normalizes the input to text, strips page furniture, and resolves any requested
+   chapter/section/page range.
+3. The chosen model turns each chunk into `{term, definition, evidence}` cards as structured
+   JSON. The quoted evidence is verified in code, and duplicates are merged out.
+4. Cards are returned as a flip deck on screen, a double-sided print layout, and a JSON
+   export.
+
+The in-memory shape is `Card { term, definition, evidence? }` — deliberately small, because
+nothing is stored. A persisted schema is a question for whenever persistence lands.
 
 ## Roadmap
 
-1. **MVP** — ✅ done. Upload PDF / pptx / docx / text / image or paste text → Claude generates
-   `{term, definition}` cards → on-screen flip deck + double-sided print layout with
-   automatic front/back alignment. No persistence yet.
-2. **Persistence** — Prisma + SQLite; save/list/delete decks; edit or regenerate individual
-   cards before saving.
-3. **Study mode** — SM-2 scheduler, due-card queue, review UI with grading.
-4. **Polish** — deck export (CSV / Anki `.apkg`), URL input (scrape → text), A4 page size
-   alongside Letter, deploy to Vercel.
-5. **Multi-user (optional)** — NextAuth, per-user decks, Postgres migration.
+Moved to [ROADMAP.md](ROADMAP.md), so planned work lives in one place. This file records
+what exists and the reasoning behind it.
 
 ## Print layout (built)
 
