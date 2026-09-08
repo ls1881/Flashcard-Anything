@@ -5,8 +5,9 @@ Convert slideshows, PDFs, textbook chapters, notes, and images into flashcards, 
 ## Stack
 
 - **Frontend/Backend:** Next.js (App Router, TypeScript) — one codebase, API routes double as the backend, deploys straight to Vercel.
-- **AI generation:** Anthropic Claude API. Claude accepts PDFs and images as native input, so PDFs/scanned pages/photos of textbook pages don't need a separate OCR step — just send the file and ask for flashcards back as structured JSON (tool use / structured output).
-- **Slideshows (.pptx):** not natively supported by the API — extract text (and speaker notes) with a library (e.g. `pptx-parser` or convert to PDF first via LibreOffice headless), then send that to Claude alongside any embedded images.
+- **Generation:** the user picks a provider in the app — **Ollama** (default; local, free, no key), **OpenRouter**, or **Anthropic**. Ollama and OpenRouter share one OpenAI-compatible `/chat/completions` path; Anthropic uses its Messages API with a tool call, which returns cleaner JSON. Structured output is requested as a JSON schema, falling back to `json_object` and then to tolerant parsing, since local servers vary in what they support. Cloud keys live in browser storage or `.env.local` — never in the repo.
+- **Text extraction:** done locally, because a local text model can't read binaries — `unpdf` for PDFs, OOXML unpacking for `.pptx` (slides + speaker notes) and `.docx`. Images go to the model as images and need a vision model.
+- **Chunking:** required here in a way it wasn't with a hosted frontier model — local context windows are small, so material is split on paragraph boundaries, generated section by section, and merged with duplicate terms dropped.
 - **Database:** SQLite via Prisma for local dev/MVP; swappable to Postgres (Neon/Supabase) for production — same schema, just change the datasource.
 - **File storage:** local disk for MVP; S3/Cloudflare R2 later if hosting uploads long-term.
 - **Auth:** skip for v1 (single local user); add NextAuth.js when multi-device/sharing is needed.

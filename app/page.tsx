@@ -1,8 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import PrintSheets from "@/components/PrintSheets";
+import SettingsPanel, { keyFor, modelFor } from "@/components/Settings";
+import { DEFAULT_SETTINGS, PROVIDERS, type Settings } from "@/lib/providers";
 import type { Card, FlipEdge } from "@/lib/duplex";
+
+const STORAGE_KEY = "flashcard-anything:settings";
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -13,27 +17,81 @@ export default function Home() {
   const [over, setOver] = useState(false);
   const [flip, setFlip] = useState<FlipEdge>("long");
   const [flipped, setFlipped] = useState<Set<number>>(new Set());
+  const [progress, setProgress] = useState<{ done: number; total: number; cards: number } | null>(null);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [showSettings, setShowSettings] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const ready = Boolean(file) || text.trim().length > 0;
+
+  // Settings live in this browser; nothing is written to the repo.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(raw) });
+    } catch {
+      // A blocked or corrupt store just means defaults.
+    }
+  }, []);
+
+  function updateSettings(next: Settings) {
+    setSettings(next);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Not fatal — the choice just won't survive a reload.
+    }
+  }
 
   async function generate() {
     if (!ready || busy) return;
     setBusy(true);
     setError(null);
+    setProgress(null);
     try {
       const body = new FormData();
       if (file) body.append("file", file);
       else body.append("text", text);
+      body.append("provider", settings.provider);
+      body.append("model", modelFor(settings));
+      body.append("apiKey", keyFor(settings));
+
       const res = await fetch("/api/generate", { method: "POST", body });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Something went wrong.");
-      setCards(data.cards as Card[]);
-      setFlipped(new Set());
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Something went wrong.");
+      }
+      if (!res.body) throw new Error("No response from the server.");
+
+      // NDJSON: progress lines while the local model works, then a result or an error.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let done = false;
+
+      while (!done) {
+        const { value, done: finished } = await reader.read();
+        done = finished;
+        buffer += decoder.decode(value ?? new Uint8Array(), { stream: !finished });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const msg = JSON.parse(line);
+          if (msg.type === "progress") setProgress(msg);
+          else if (msg.type === "error") throw new Error(msg.error);
+          else if (msg.type === "result") {
+            setCards(msg.cards as Card[]);
+            setFlipped(new Set());
+          }
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   }
 
@@ -111,7 +169,16 @@ export default function Home() {
         {busy ? (
           <div className="loading">
             <div className="spinner" />
-            Reading your material and writing cards…
+            {progress && progress.total > 1
+              ? `Section ${Math.min(progress.done + 1, progress.total)} of ${progress.total}${
+                  progress.cards ? ` · ${progress.cards} cards so far` : ""
+                }`
+              : "Reading your material and writing cards…"}
+            <div className="sub">
+              {settings.provider === "ollama"
+                ? "Running on your machine — this can take a minute."
+                : `Asking ${PROVIDERS[settings.provider].label}…`}
+            </div>
           </div>
         ) : (
           <>
@@ -170,6 +237,25 @@ export default function Home() {
           </>
         )}
       </div>
+
+      {!busy && (
+        <div className="footer">
+          {showSettings ? (
+            <SettingsPanel
+              settings={settings}
+              onChange={updateSettings}
+              onClose={() => setShowSettings(false)}
+            />
+          ) : (
+            <p>
+              Using <b>{PROVIDERS[settings.provider].label}</b> · {modelFor(settings)}{" "}
+              <button className="linkish" onClick={() => setShowSettings(true)}>
+                Change
+              </button>
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

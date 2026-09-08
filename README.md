@@ -6,15 +6,30 @@ Drop in a file of any supported format, get the same output every time: a deck y
 flip through on screen, and a double-sided print layout where every definition lands
 exactly behind its own term.
 
+Works with a **local model** (free, private, no key) or a **cloud API** if you want better
+cards. Pick in the app under **Change** — no config files required.
+
+| Provider | Key needed | Notes |
+| --- | --- | --- |
+| **Ollama** (default) | No | Runs on your machine. Free and private. |
+| **OpenRouter** | Yes | One key, hundreds of models. |
+| **Anthropic** | Yes | Claude direct. Best card quality. |
+
 ## Setup
 
 ```bash
+brew install ollama          # or download from ollama.com
+ollama serve                 # leave running
+ollama pull qwen3:8b         # ~5GB, one time
+
 npm install
-cp .env.example .env.local   # then add your Anthropic API key
 npm run dev                  # http://localhost:3000
 ```
 
-Get a key at [console.anthropic.com](https://console.anthropic.com/settings/keys).
+That's the whole setup for local use. For OpenRouter or Anthropic, click **Change** in the
+app and paste a key — it's stored in your browser only and never written to the repo. If
+you'd rather keep keys out of the browser, put `ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY`
+in `.env.local` and leave the field blank.
 
 ## Using it
 
@@ -42,16 +57,28 @@ match on each side of the paper.
 
 | Input | Handling |
 | --- | --- |
-| PDF, images | Passed to the model natively — no OCR step |
+| PDF | Text extracted locally with `unpdf` |
 | .pptx | Slide text + speaker notes unpacked from the OOXML |
 | .docx | Document text unpacked from the OOXML |
 | Text formats | Read directly |
+| Images | Sent to the model as an image — **needs a vision model** (`ollama pull qwen2.5vl:7b`) |
 
 Everything normalizes to the same `{ term, definition }` list, which drives both the
 on-screen deck and the print sheets.
 
-- [`lib/extract.ts`](lib/extract.ts) — turns any upload into model input
-- [`app/api/generate/route.ts`](app/api/generate/route.ts) — the generation call and card rules
+Local models have small context windows, so long material is split on paragraph boundaries
+and turned into cards a section at a time, with progress streamed back to the page and
+duplicate terms merged out. Cloud providers get much larger chunks, so they usually finish
+in one pass.
+
+**Limits:** scanned/image-only PDFs have no extractable text — screenshot the pages and
+upload them as images with a vision model instead. Card quality tracks the model you run;
+with Ollama, a bigger model (`ollama pull qwen3:14b`) gives noticeably better definitions.
+
+- [`lib/providers.ts`](lib/providers.ts) — the three providers and their defaults
+- [`lib/llm.ts`](lib/llm.ts) — provider clients, JSON coaxing, error messages
+- [`lib/extract.ts`](lib/extract.ts) — turns any upload into text, and chunks it
+- [`app/api/generate/route.ts`](app/api/generate/route.ts) — card rules and streamed generation
 - [`lib/duplex.ts`](lib/duplex.ts) — the front/back mirroring math
 - [`app/globals.css`](app/globals.css) — screen styles and the `@page` print layout
 

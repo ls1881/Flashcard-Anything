@@ -1,59 +1,40 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
-import { fileToBlocks, MAX_BYTES } from "@/lib/extract";
+import { chunkText, fileToSource, MAX_BYTES, type Source } from "@/lib/extract";
+import { completeJson, resolveKey, type LlmConfig, type Part } from "@/lib/llm";
+import { PROVIDERS, isProviderId } from "@/lib/providers";
 import type { Card } from "@/lib/duplex";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 const MAX_CARDS = 60;
 
-const TOOL: Anthropic.Messages.Tool = {
-  name: "emit_flashcards",
-  description: "Return the finished set of flashcards.",
-  input_schema: {
-    type: "object",
-    properties: {
-      cards: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            term: {
-              type: "string",
-              description:
-                "The front of the card: a single term, name, or concept. 1-5 words. Never a sentence, question, or definition.",
-            },
-            definition: {
-              type: "string",
-              description:
-                "The back of the card: the definition or explanation. 1-3 sentences, under 45 words, self-contained.",
-            },
-          },
-          required: ["term", "definition"],
-        },
-      },
-    },
-    required: ["cards"],
-  },
-};
+const SYSTEM = `You write study flashcards. You reply with JSON only — no commentary, no markdown fences.
 
-const PROMPT = `Turn the material above into a set of study flashcards.
+Reply with exactly this shape:
+{"cards":[{"term":"...","definition":"..."}]}
 
-Rules, applied to every card without exception:
-- FRONT ("term") is only the thing being learned: a term, name, concept, formula name, date, or event. 1-5 words. No sentences, no questions, no punctuation at the end, no definition text leaking onto the front.
-- BACK ("definition") carries all the substance: the definition or explanation, 1-3 sentences and under 45 words. It must stand on its own without the front being visible.
-- One card per distinct concept worth memorizing. Skip filler, title slides, agendas, page numbers, and citations.
-- Cover the material evenly from beginning to end. Don't front-load.
-- Use the source's own terminology. Never invent facts that aren't in the material.
-- No duplicate or near-duplicate fronts.
-- Produce as many cards as the material genuinely warrants, up to ${MAX_CARDS}.`;
+Rules for every card, without exception:
+- "term" is only the thing being learned: a term, name, concept, formula name, date, or event. 1 to 5 words. Never a sentence, never a question, no trailing punctuation, and never any part of the definition.
+- "definition" carries all the substance: 1 to 3 sentences, under 45 words, and understandable without seeing the term.
+- One card per distinct idea worth memorizing. Skip title slides, agendas, page numbers, and citations.
+- Use the source's own wording and never invent facts.
+- No duplicate terms.`;
 
-function normalize(raw: unknown): Card[] {
-  if (!Array.isArray(raw)) return [];
-  const seen = new Set<string>();
-  const cards: Card[] = [];
-  for (const item of raw) {
+const userPrompt = (part: number, total: number) =>
+  total > 1
+    ? `Make flashcards from section ${part} of ${total} of the material above. Cover only what this section contains.`
+    : `Make flashcards from the material above.`;
+
+/** Merge in new cards, dropping repeats of terms already collected. */
+function absorb(into: Card[], seen: Set<string>, raw: unknown): void {
+  const list = Array.isArray(raw)
+    ? raw
+    : Array.isArray((raw as { cards?: unknown })?.cards)
+      ? (raw as { cards: unknown[] }).cards
+      : [];
+
+  for (const item of list) {
     if (!item || typeof item !== "object") continue;
     const term = String((item as Card).term ?? "").replace(/\s+/g, " ").trim();
     const definition = String((item as Card).definition ?? "").replace(/\s+/g, " ").trim();
@@ -61,26 +42,43 @@ function normalize(raw: unknown): Card[] {
     const key = term.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    cards.push({ term, definition });
-    if (cards.length >= MAX_CARDS) break;
+    into.push({ term, definition });
+    if (into.length >= MAX_CARDS) return;
   }
-  return cards;
+}
+
+function buildParts(source: Source, chunk: string | null, part: number, total: number): Part[] {
+  if (source.kind === "image") {
+    return [
+      { type: "image_url", image_url: { url: source.dataUrl } },
+      { type: "text", text: `Read this image and make flashcards from what it teaches.` },
+    ];
+  }
+  return [
+    { type: "text", text: chunk ?? "" },
+    { type: "text", text: userPrompt(part, total) },
+  ];
 }
 
 export async function POST(req: Request) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json(
-      { error: "No ANTHROPIC_API_KEY set. Copy .env.example to .env.local and add your key." },
-      { status: 500 }
-    );
-  }
+  let source: Source;
+  let cfg: LlmConfig;
 
   try {
     const form = await req.formData();
     const file = form.get("file");
     const text = String(form.get("text") ?? "").trim();
 
-    let content: Anthropic.Messages.ContentBlockParam[];
+    const provider = String(form.get("provider") ?? "ollama");
+    if (!isProviderId(provider)) {
+      return NextResponse.json({ error: "Unknown provider." }, { status: 400 });
+    }
+    cfg = {
+      provider,
+      model: String(form.get("model") ?? "").trim() || PROVIDERS[provider].defaultModel,
+      apiKey: resolveKey(provider, String(form.get("apiKey") ?? "")),
+    };
+
     if (file instanceof File && file.size > 0) {
       if (file.size > MAX_BYTES) {
         return NextResponse.json(
@@ -88,38 +86,58 @@ export async function POST(req: Request) {
           { status: 413 }
         );
       }
-      content = await fileToBlocks(file);
+      source = await fileToSource(file);
     } else if (text) {
-      content = [{ type: "text", text: `Source material:\n\n${text}` }];
+      source = { kind: "text", text };
     } else {
       return NextResponse.json({ error: "Add a file or some text first." }, { status: 400 });
     }
-
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    const message = await client.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 8000,
-      tools: [TOOL],
-      tool_choice: { type: "tool", name: "emit_flashcards" },
-      messages: [{ role: "user", content: [...content, { type: "text", text: PROMPT }] }],
-    });
-
-    const toolUse = message.content.find((b) => b.type === "tool_use");
-    const cards = normalize(
-      toolUse && toolUse.type === "tool_use"
-        ? (toolUse.input as { cards?: unknown }).cards
-        : []
-    );
-
-    if (!cards.length) {
-      return NextResponse.json(
-        { error: "Couldn't find anything to make flashcards from in that." },
-        { status: 422 }
-      );
-    }
-    return NextResponse.json({ cards });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Something went wrong.";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    const msg = err instanceof Error ? err.message : "Couldn't read that file.";
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
+
+  const chunks =
+    source.kind === "image"
+      ? [null]
+      : chunkText(source.text, PROVIDERS[cfg.provider].chunkChars);
+  const encoder = new TextEncoder();
+
+  // Streamed as NDJSON so the page can show progress; local runs take real time.
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (obj: unknown) => controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+      const cards: Card[] = [];
+      const seen = new Set<string>();
+
+      try {
+        for (let i = 0; i < chunks.length; i++) {
+          send({ type: "progress", done: i, total: chunks.length, cards: cards.length });
+          const parts = buildParts(source, chunks[i], i + 1, chunks.length);
+          absorb(cards, seen, await completeJson(cfg, SYSTEM, parts));
+          if (cards.length >= MAX_CARDS) break;
+        }
+
+        if (!cards.length) {
+          send({
+            type: "error",
+            error:
+              source.kind === "image"
+                ? `No cards came back. "${cfg.model}" may not read images — try a vision model.`
+                : "Couldn't find anything to make flashcards from in that.",
+          });
+        } else {
+          send({ type: "result", cards });
+        }
+      } catch (err) {
+        send({ type: "error", error: err instanceof Error ? err.message : "Something went wrong." });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" },
+  });
 }
