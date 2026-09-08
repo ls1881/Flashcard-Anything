@@ -75,10 +75,15 @@ roles, with mechanical checks between them:
    quote paired with a definition that misstates it. Best-effort — if it fails, the
    writer's cards are kept.
 
-Roles are batched per chunk, not per card: two calls per section regardless of card count.
-A third pass was considered (a whole-deck curator for coverage and near-duplicates) and
-skipped — on a local model each pass is real wall-clock time, and deterministic dedupe plus
-the writer's own section-by-section coverage already handle most of it.
+Roles are batched per chunk, not per card: one call per section, plus one more when the
+reviewer runs.
+
+**The default is writer + evidence check, chosen by measurement.** Six arrangements were
+benchmarked (`bench/`), and the reviewer pass tripled runtime while returning identical
+per-case scores, so it is no longer on by default. The evidence check stays because it is
+nearly free and is the only mechanical guard against an unsupported definition. The
+benchmark cannot see the reviewer's value on messy material, which is a limitation of the
+fixtures rather than proof the reviewer is useless — it remains selectable.
 
 Chunking is what invites invention, so each request also carries a context block: the
 document's opening plus an acronym glossary harvested from the full text before splitting.

@@ -337,8 +337,18 @@ export const PIPELINES: Record<string, Pipeline> = {
   [ensemble.id]: ensemble,
 };
 
-/** Set by benchmark: see bench/README.md. */
-export const DEFAULT_PIPELINE = "grounded-review";
+/**
+ * Chosen by measurement, not preference — see bench/README.md.
+ *
+ * `grounded` matched every checked and unchecked variant on accuracy across the whole
+ * benchmark while costing one model call per chunk instead of two, so the reviewer pass
+ * tripled runtime without moving any score. The evidence check itself is worth its ~1s:
+ * it is the only thing between a card and an unsupported definition.
+ *
+ * `grounded-review` remains the better choice on messy source material, where the
+ * reviewer does rewrite cards — it just isn't measurable on the benchmark's clean prose.
+ */
+export const DEFAULT_PIPELINE = "grounded";
 
 export function pipelineFor(id: string | null | undefined): Pipeline {
   return PIPELINES[id ?? ""] ?? PIPELINES[DEFAULT_PIPELINE];

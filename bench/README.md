@@ -56,6 +56,36 @@ Four fixtures in [`cases.json`](cases.json), each written so prior knowledge is 
 - **figures-and-dates** — an invented freight levy with specific numbers, where a model
   leaning on priors drifts toward real-world congestion-charge figures.
 
+## Result
+
+`qwen3:8b` via Ollama, four cases, `--chunk 700` to force multi-chunk behaviour:
+
+| pipeline | grnd | cov | secs | calls/chunk |
+| --- | --- | --- | --- | --- |
+| **grounded** | 94% | 90% | **24** | 1 |
+| single | 94% | 90% | 23 | 1 |
+| grounded-review | 94% | 90% | 73 | 2 |
+| review-only | 94% | 90% | 128¹ | 2 |
+| outline-first | 80% | 91% | 65 | 2 |
+
+¹ inflated by one 402s outlier, most likely a model reload; the other three cases averaged 37s.
+
+**`grounded` is the default.** The checked and unchecked variants returned identical
+per-case scores — 92/100/100/83 groundedness and 88/100/100/71 coverage — so the reviewer
+pass tripled runtime without moving a single number. `outline-first` was actively worse:
+it produced more cards (17 vs 12 on the acronym paper) at much lower fidelity, which is
+what happens when a model defines a term list without re-reading the source.
+
+The one gap worth having is `single` vs `grounded`: the evidence check costs about a
+second and is the only thing standing between a deck and an unsupported definition.
+
+**What this result does not say.** The benchmark cannot see the reviewer's value, because
+its fixtures are clean self-contained prose where the writer does not drift — the evidence
+check dropped nothing on any case. On real coursework the reviewer does rewrite cards (2 on
+a conference paper, 4 on a lecture PDF, 2 on a slide deck). But "fixed" is not "improved",
+and nothing here verifies those rewrites were better. `grounded-review` stays available for
+messy material; it just cannot justify being the default on this evidence.
+
 ## Honest limitations
 
 - **Traps never fired.** No pipeline, including the unchecked `single` baseline, emitted any
