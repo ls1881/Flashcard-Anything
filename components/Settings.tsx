@@ -22,7 +22,6 @@ export function baseUrlFor(settings: Settings, provider = settings.provider): st
 }
 
 const THEMES: { id: ThemeChoice; label: string }[] = [
-  { id: "system", label: "System" },
   { id: "light", label: "Light" },
   { id: "dark", label: "Dark" },
 ];

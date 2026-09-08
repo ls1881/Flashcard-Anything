@@ -37,17 +37,19 @@ export default function Home() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(raw) });
+      if (raw) {
+        const stored = JSON.parse(raw);
+        // Settings saved before the theme was reduced to two choices may say "system".
+        if (stored.theme !== "light" && stored.theme !== "dark") stored.theme = "light";
+        setSettings({ ...DEFAULT_SETTINGS, ...stored });
+      }
     } catch {
       // A blocked or corrupt store just means defaults.
     }
   }, []);
 
-  // "system" leaves the attribute off so the CSS media query decides.
   useEffect(() => {
-    const root = document.documentElement;
-    if (settings.theme === "system") root.removeAttribute("data-theme");
-    else root.setAttribute("data-theme", settings.theme);
+    document.documentElement.setAttribute("data-theme", settings.theme);
   }, [settings.theme]);
 
   function updateSettings(next: Settings) {

@@ -11,7 +11,8 @@ export const metadata: Metadata = {
  * stored choice before the first paint instead.
  */
 const THEME_SCRIPT = `try{var s=JSON.parse(localStorage.getItem("flashcard-anything:settings")||"{}");
-if(s.theme==="dark"||s.theme==="light")document.documentElement.setAttribute("data-theme",s.theme);}catch(e){}`;
+document.documentElement.setAttribute("data-theme",s.theme==="dark"?"dark":"light");}catch(e){
+document.documentElement.setAttribute("data-theme","light");}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

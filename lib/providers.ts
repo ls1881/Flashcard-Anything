@@ -155,7 +155,7 @@ export function isProviderId(v: unknown): v is ProviderId {
   return typeof v === "string" && v in PROVIDERS;
 }
 
-export type ThemeChoice = "system" | "light" | "dark";
+export type ThemeChoice = "light" | "dark";
 
 export type Settings = {
   provider: ProviderId;
@@ -168,7 +168,7 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = {
   provider: "ollama",
-  theme: "system",
+  theme: "light",
   keys: {},
   models: {},
   baseUrls: {},

@@ -26,7 +26,7 @@ anything not listed. Keys can also come from the environment — `ANTHROPIC_API_
 `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`,
 `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `TOGETHER_API_KEY`, `CUSTOM_LLM_API_KEY`.
 
-**Appearance** (system / light / dark) is in the same panel.
+**Appearance** (light or dark) is in the same panel.
 
 ## Setup
 
@@ -150,22 +150,22 @@ then a final `{"type":"result","cards":[…]}` or `{"type":"error","error":"…"
 ## Staying grounded in your source
 
 Models like to answer from prior knowledge — asked about "URTC" in a conference paper, one
-will happily invent "Unified Regional Transportation Corridor." Cards go through two model
-passes and two mechanical checks before you see them.
+will happily invent "Unified Regional Transportation Corridor."
 
-**Pass 1 — write.** Each section is turned into cards. Every card must also return an
-`evidence` span quoted from the text.
+**Write.** Each section is turned into cards, and every card must also return an `evidence`
+span quoted from the text.
 
 **Check — is the quote real?** The server verifies that span actually appears in what the
 model was shown (normalized substring, falling back to 85% word overlap). Invented content
-shares almost no vocabulary with the source, so it fails here and is dropped.
+shares almost no vocabulary with the source, so it fails here and is dropped. This is the
+default, and it costs about a second.
 
-**Pass 2 — review.** A quote being real doesn't mean the definition says what the quote
-says. A second call re-reads the section and judges each card: `ok`, `fix` (with a
-corrected definition drawn only from the source), or `drop`. Cards get repaired, not just
-discarded — a definition claiming a controller "drops elements from the array" when the
-paper says it does the opposite comes back corrected. If the reviewer errors out, the
-first-pass cards are kept rather than losing the deck.
+**Optionally, review.** A quote being real doesn't mean the definition says what the quote
+says. A second model pass can re-read the section and judge each card `ok`, `fix` (with a
+corrected definition drawn only from the source), or `drop` — repairing cards rather than
+just discarding them. It is **off by default**: benchmarking six arrangements found it
+tripled runtime without changing any score ([bench/](bench/)). Turn it on per request with
+`-F "pipeline=grounded-review"`.
 
 **Context, so chunks don't invite invention.** Acronym expansions (`URTC = Undergraduate
 Research and Technology Conference`) are harvested from the whole document before splitting

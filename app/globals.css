@@ -14,40 +14,22 @@
   --shadow: rgba(0, 0, 0, 0.08);
 }
 
-/* Dark tokens live in one block, applied when the OS asks for dark and the user hasn't
-   overridden it, and again when the user explicitly picks dark. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #101013;
-    --panel: #1a1a1f;
-    --ink: #ececf1;
-    --muted: #9a9aa6;
-    --line: #2e2e37;
-    --accent: #8b85f5;
-    --field: #16161b;
-    --track: #232329;
-    --error-bg: #2a1618;
-    --error-line: #5d2b2f;
-    --error-ink: #ff9a94;
-    --shadow: rgba(0, 0, 0, 0.5);
-  }
-}
-
+/* Dimmed rather than black: a charcoal ground is easier to read against for long
+   stretches, and keeps the cards distinguishable from the page behind them. */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #101013;
-  --panel: #1a1a1f;
-  --ink: #ececf1;
-  --muted: #9a9aa6;
-  --line: #2e2e37;
-  --accent: #8b85f5;
-  --field: #16161b;
-  --track: #232329;
-  --error-bg: #2a1618;
-  --error-line: #5d2b2f;
-  --error-ink: #ff9a94;
-  --shadow: rgba(0, 0, 0, 0.5);
+  --bg: #1e1f24;
+  --panel: #292b31;
+  --ink: #e9eaf0;
+  --muted: #a6a8b3;
+  --line: #3b3d45;
+  --accent: #9d97f8;
+  --field: #24262b;
+  --track: #33353c;
+  --error-bg: #3a2528;
+  --error-line: #6b3a3f;
+  --error-ink: #ffaea8;
+  --shadow: rgba(0, 0, 0, 0.35);
 }
 
 * {
