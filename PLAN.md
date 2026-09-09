@@ -10,17 +10,17 @@ Convert slideshows, PDFs, textbook chapters, notes, and images into flashcards, 
 - **Export:** a versioned JSON document (`version`, `generatedAt`, `source`, `scope`, `model`, `cards`), so other tools get a stable contract. The API returns the same card shape.
 - **Text extraction:** done locally, because a local text model can't read binaries — `unpdf` for PDFs, OOXML unpacking for `.pptx` (slides + speaker notes) and `.docx`, plus EPUB, RTF and HTML. Format is detected from the bytes, not the extension. Images are transcribed by a vision model first, then run through the same grounded pipeline as any document.
 - **Chunking:** required here in a way it wasn't with a hosted frontier model — local context windows are small, so material is split on paragraph boundaries, generated section by section, and merged with duplicate terms dropped.
-- **Database:** SQLite via Prisma for local dev/MVP; swappable to Postgres (Neon/Supabase) for production — same schema, just change the datasource.
+- **Storage:** decks live in the browser's IndexedDB — no server, no setup, and nothing to deploy. It holds megabyte decks that would blow past the ~5MB `localStorage` string quota. A server-side database (SQLite via Prisma, swappable to Postgres) only earns its complexity once decks need to sync across devices, which needs auth first.
 - **File storage:** local disk for MVP; S3/Cloudflare R2 later if hosting uploads long-term.
 - **Auth:** skip for v1 (single local user); add NextAuth.js when multi-device/sharing is needed.
 - **Styling:** hand-written CSS with custom properties. The print layout needs exact `@page` control and inch-based grids, which is easier to get right without a utility framework.
 
 ## Not built yet
 
-There is no database and no persistence: a deck lives in the page until it is printed or
-exported. Cards cannot be edited or regenerated individually. There is no study scheduler,
-and one is not planned — see [ROADMAP.md](ROADMAP.md), which argues for exporting to Anki
-instead of reimplementing spaced repetition here.
+There is no server-side database and no sync — decks are saved in the browser they were made
+in and go no further. Cards cannot be edited or regenerated individually. There is no study
+scheduler, and one is not planned — see [ROADMAP.md](ROADMAP.md), which argues for exporting
+to Anki instead of reimplementing spaced repetition here.
 
 ## Core flow
 
@@ -33,8 +33,8 @@ instead of reimplementing spaced repetition here.
 4. Cards are returned as a flip deck on screen, a double-sided print layout, and a JSON
    export.
 
-The in-memory shape is `Card { term, definition, evidence? }` — deliberately small, because
-nothing is stored. A persisted schema is a question for whenever persistence lands.
+The card shape is `Card { term, definition, evidence? }` — deliberately small. A finished run
+is wrapped in a `Deck` and written to IndexedDB; see "Persistence" below.
 
 ## Roadmap
 
@@ -57,6 +57,44 @@ The same setting drives the on-screen deck, which rotates about the axis the pap
 about — `rotateY` for long edge, `rotateX` for short. It used to always rotate about Y, so
 a short-edge deck previewed one way and printed another. `test/duplex.test.mjs` covers the
 sheet arithmetic and checks that both halves stay wired to the same setting.
+
+## Persistence (built)
+
+A deck used to live in React state, so a refresh after a ten-minute textbook run lost
+everything. Decks are now written to IndexedDB (`lib/decks.ts`), one object store keyed by
+id, holding the whole deck:
+
+```
+Deck { id, name, source, scope, model, cards, count, createdAt, updatedAt }
+```
+
+A finished run saves itself without being asked — the moment worth protecting is the one
+right after a long generation, and a Save button is a button you forget to press. The id of
+the open deck goes in `localStorage`, so a reload puts you back on the deck rather than on
+the upload form. Closing a deck ("All decks") only closes it; deleting is the one
+destructive action and it asks first.
+
+Names default to the source file narrowed by the scope you asked for — `textbook — chapter
+3, section 2` — because a list of "Untitled deck" is useless a week later. Clicking the name
+renames it.
+
+Two decisions worth recording:
+
+- **Whole decks in one store, not cards in their own.** Card-level rows would buy queries
+  nobody makes yet, at the cost of a join on every read. A student's decks are hundreds of
+  cards, not millions.
+- **Nothing read back from disk is trusted.** `normalizeDeck` repairs what it can and drops
+  what it can't, so a deck written by an older version — or a half-written one — degrades to
+  a listed deck with fewer cards instead of a page that won't render. The count is always
+  recomputed from the cards rather than believed.
+
+Every call can reject: private windows and locked-down browsers refuse to open a database at
+all. That is not fatal — the deck stays in memory for the session and the page says so, the
+same way blocked settings storage falls back to defaults.
+
+`test/decks.test.mjs` covers this against a real IndexedDB implementation
+(`fake-indexeddb`), including a 6MB deck round-tripping and a reload simulated by dropping
+the connection.
 
 ## Grounding (built)
 

@@ -5,14 +5,34 @@ import PrintSheets from "@/components/PrintSheets";
 import SettingsPanel, { baseUrlFor, keyFor, modelFor } from "@/components/Settings";
 import { DEFAULT_SETTINGS, PROVIDERS, type Settings } from "@/lib/providers";
 import type { Card, FlipEdge } from "@/lib/duplex";
+import {
+  PASTED,
+  available,
+  deleteDeck,
+  exportFileName,
+  formatWhen,
+  getDeck,
+  listDecks,
+  newDeck,
+  putDeck,
+  renameDeck,
+  type Deck,
+  type DeckMeta,
+} from "@/lib/decks";
 
 const STORAGE_KEY = "flashcard-anything:settings";
+/** Which deck to reopen on a refresh, so a reload doesn't dump you on the form. */
+const LAST_DECK_KEY = "flashcard-anything:last-deck";
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");
   const [scope, setScope] = useState("");
-  const [cards, setCards] = useState<Card[] | null>(null);
+  const [deck, setDeck] = useState<Deck | null>(null);
+  const [decks, setDecks] = useState<DeckMeta[]>([]);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const [unsaved, setUnsaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [over, setOver] = useState(false);
@@ -24,8 +44,6 @@ export default function Home() {
     total: number;
     cards: number;
   } | null>(null);
-  const [scopeUsed, setScopeUsed] = useState<string | null>(null);
-  const [usedModel, setUsedModel] = useState<{ provider: string; name: string } | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -47,9 +65,55 @@ export default function Home() {
     }
   }, []);
 
+  // Decks live in IndexedDB in this browser. A refusal to open it (private
+  // window, storage disabled) is not fatal — you just lose the list.
+  useEffect(() => {
+    if (!available()) {
+      setUnsaved(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const saved = await listDecks();
+        if (cancelled) return;
+        setDecks(saved);
+
+        const last = localStorage.getItem(LAST_DECK_KEY);
+        if (!last) return;
+        const reopened = await getDeck(last);
+        if (cancelled) return;
+        if (reopened) setDeck(reopened);
+        else localStorage.removeItem(LAST_DECK_KEY);
+      } catch {
+        if (!cancelled) setUnsaved(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", settings.theme);
   }, [settings.theme]);
+
+  async function refreshDecks() {
+    try {
+      setDecks(await listDecks());
+    } catch {
+      setUnsaved(true);
+    }
+  }
+
+  function rememberOpen(id: string | null) {
+    try {
+      if (id) localStorage.setItem(LAST_DECK_KEY, id);
+      else localStorage.removeItem(LAST_DECK_KEY);
+    } catch {
+      // Losing the pointer only costs you the reopen, not the deck.
+    }
+  }
 
   function updateSettings(next: Settings) {
     setSettings(next);
@@ -102,10 +166,15 @@ export default function Home() {
           if (msg.type === "progress") setProgress(msg);
           else if (msg.type === "error") throw new Error(msg.error);
           else if (msg.type === "result") {
-            setCards(msg.cards as Card[]);
-            setScopeUsed(msg.scope ?? null);
-            setUsedModel({ provider: settings.provider, name: modelFor(settings) });
+            const made = newDeck({
+              cards: msg.cards as Card[],
+              source: file?.name ?? PASTED,
+              scope: msg.scope ?? null,
+              model: { provider: settings.provider, name: modelFor(settings) },
+            });
+            setDeck(made);
             setFlipped(new Set());
+            void save(made);
           }
         }
       }
@@ -117,30 +186,101 @@ export default function Home() {
     }
   }
 
+  /** Write a finished deck to disk. Failing here loses the deck on reload, so say so. */
+  async function save(made: Deck) {
+    try {
+      await putDeck(made);
+      rememberOpen(made.id);
+      setUnsaved(false);
+      await refreshDecks();
+    } catch {
+      setUnsaved(true);
+    }
+  }
+
+  async function openDeck(id: string) {
+    try {
+      const saved = await getDeck(id);
+      if (!saved) {
+        // Deleted in another tab; resync rather than showing a ghost.
+        await refreshDecks();
+        return;
+      }
+      setDeck(saved);
+      setFlipped(new Set());
+      setError(null);
+      rememberOpen(id);
+    } catch {
+      setUnsaved(true);
+    }
+  }
+
+  function startRename(target: { id: string; name: string }) {
+    setRenamingId(target.id);
+    setDraftName(target.name);
+  }
+
+  async function commitRename() {
+    const id = renamingId;
+    if (!id) return;
+    const name = draftName.trim();
+    setRenamingId(null);
+    if (!name) return;
+    // In memory first, so a deck that never reached disk still renames.
+    setDeck((current) => (current && current.id === id ? { ...current, name } : current));
+    setDecks((current) => current.map((d) => (d.id === id ? { ...d, name } : d)));
+    try {
+      await renameDeck(id, name);
+      await refreshDecks();
+    } catch {
+      setUnsaved(true);
+    }
+  }
+
+  async function removeDeck(target: DeckMeta) {
+    const count = `${target.count} card${target.count === 1 ? "" : "s"}`;
+    if (!window.confirm(`Delete "${target.name}" (${count})? This cannot be undone.`)) return;
+    try {
+      await deleteDeck(target.id);
+      if (deck?.id === target.id) {
+        setDeck(null);
+        rememberOpen(null);
+      }
+      await refreshDecks();
+    } catch {
+      setUnsaved(true);
+    }
+  }
+
+  /** Back to the form. The open deck stays on disk; this only closes it. */
   function reset() {
-    setCards(null);
+    setDeck(null);
     setFile(null);
     setText("");
     setScope("");
     setError(null);
+    setFlipped(new Set());
+    setRenamingId(null);
+    rememberOpen(null);
+    void refreshDecks();
   }
 
   function exportJson() {
-    if (!cards) return;
+    if (!deck) return;
     const payload = {
       version: 1,
-      generatedAt: new Date().toISOString(),
-      source: file?.name ?? "pasted text",
-      scope: scopeUsed,
-      model: usedModel ?? { provider: settings.provider, name: modelFor(settings) },
-      count: cards.length,
-      cards: cards.map(({ term, definition, evidence }) => ({ term, definition, evidence })),
+      generatedAt: new Date(deck.createdAt).toISOString(),
+      source: deck.source,
+      scope: deck.scope,
+      model: deck.model,
+      count: deck.cards.length,
+      cards: deck.cards.map(({ term, definition, evidence }) => ({ term, definition, evidence })),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${(file?.name ?? "flashcards").replace(/\.[^.]+$/, "")}.flashcards.json`;
+    a.download = exportFileName(deck.name);
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -156,13 +296,41 @@ export default function Home() {
     });
   }
 
-  if (cards) {
+  // One control, used from the bar and from the deck list.
+  const nameField = (
+    <input
+      className="rename"
+      value={draftName}
+      autoFocus
+      aria-label="Deck name"
+      onChange={(e) => setDraftName(e.target.value)}
+      onBlur={commitRename}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commitRename();
+        else if (e.key === "Escape") setRenamingId(null);
+      }}
+    />
+  );
+
+  if (deck) {
+    const cards = deck.cards;
     return (
       <>
         <div className="wrap screen">
           <div className="bar">
+            {renamingId === deck.id ? (
+              nameField
+            ) : (
+              <button
+                className="deck-title"
+                title="Click to rename"
+                onClick={() => startRename(deck)}
+              >
+                {deck.name}
+              </button>
+            )}
             <span className="count">
-              {scopeUsed ? `${scopeUsed} · ` : ""}
+              {deck.scope ? `${deck.scope} · ` : ""}
               {cards.length} flashcards
             </span>
             <label className="edge">
@@ -179,7 +347,7 @@ export default function Home() {
               Export JSON
             </button>
             <button className="ghost" onClick={reset}>
-              Start over
+              All decks
             </button>
           </div>
 
@@ -201,6 +369,9 @@ export default function Home() {
           <p className="hint">
             Click a card to flip it. Printing gives you double-sided pages — set your printer to
             two-sided and match the flip edge above.
+            {unsaved
+              ? " This browser won't save decks, so export the JSON if you need to keep this one."
+              : " This deck is saved in this browser and will still be here after a reload."}
           </p>
         </div>
 
@@ -298,6 +469,37 @@ export default function Home() {
           </>
         )}
       </div>
+
+      {!busy && decks.length > 0 && (
+        <div className="decks">
+          <div className="decks-head">
+            <h2>Saved decks</h2>
+            <span>kept in this browser</span>
+          </div>
+          <ul>
+            {decks.map((d) => (
+              <li key={d.id}>
+                {renamingId === d.id ? (
+                  nameField
+                ) : (
+                  <button className="deck-open" onClick={() => openDeck(d.id)}>
+                    <b>{d.name}</b>
+                    <span>
+                      {d.count} card{d.count === 1 ? "" : "s"} · {formatWhen(d.updatedAt)}
+                    </span>
+                  </button>
+                )}
+                <button className="linkish" onClick={() => startRename(d)}>
+                  Rename
+                </button>
+                <button className="linkish danger" onClick={() => removeDeck(d)}>
+                  Delete
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {!busy && (
         <div className="footer">

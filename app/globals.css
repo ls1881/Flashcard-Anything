@@ -215,6 +215,124 @@ button:disabled {
   margin-right: auto;
 }
 
+/* The deck name doubles as its own rename control. */
+.deck-title {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--ink);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 5px 8px;
+  margin-left: -8px;
+  cursor: text;
+  text-align: left;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck-title:hover {
+  border-color: var(--line);
+  background: var(--field);
+}
+
+.rename {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--ink);
+  background: var(--field);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 5px 8px;
+  min-width: 240px;
+  flex: 1 1 240px;
+  max-width: 420px;
+}
+
+/* ---------- saved decks ---------- */
+
+.decks {
+  margin-top: 22px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px 20px;
+}
+
+.decks-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.decks-head h2 {
+  font-size: 14px;
+  font-weight: 650;
+  margin: 0;
+}
+
+.decks-head span {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.decks ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.decks li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.deck-open {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  padding: 6px 8px;
+  margin-left: -8px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.deck-open:hover {
+  border-color: var(--line);
+  background: var(--field);
+}
+
+.deck-open b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck-open span {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.linkish.danger {
+  color: var(--error-ink);
+}
+
 .edge {
   display: flex;
   align-items: center;

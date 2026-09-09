@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning test/dedupe.test.mjs && node --experimental-strip-types --disable-warning=ExperimentalWarning test/duplex.test.mjs"
+    "test": "for f in test/*.test.mjs; do echo \"== $f\"; node --experimental-strip-types --disable-warning=ExperimentalWarning \"$f\" || exit 1; done"
   },
   "dependencies": {
     "jszip": "^3.10.1",
@@ -19,6 +19,7 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "fake-indexeddb": "^6.2.5",
     "typescript": "^5.7.0"
   }
 }

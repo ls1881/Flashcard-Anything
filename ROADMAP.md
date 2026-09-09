@@ -8,20 +8,22 @@ a later reader can disagree with it.
 
 ## The gap worth naming
 
-The app is strongest at *generation* and weakest at *everything after generation*. You get a
-good deck and then have nowhere to put it — it disappears on reload, can't be corrected, and
-can't leave the page except as paper. Persistence, editing, and export all address that same
-gap, and they're worth sequencing together before adding new input formats.
+The app is strongest at *generation* and weakest at *everything after generation*. Decks now
+survive a reload, which closes the worst of it, but a deck still can't be corrected and
+still can't leave the page except as paper or JSON. Editing and Anki export are what's left
+of that gap, and they're worth doing before adding new input formats.
 
 ## Next
 
 Ordered. Each one is worth doing on its own.
 
-### 1. Persistence — decks survive a reload
+### ~~1. Persistence — decks survive a reload~~ — built
 
-Today a deck lives in React state. A refresh after a ten-minute textbook run loses
-everything. IndexedDB gives deck list, rename, and delete with no server and no setup;
-SQLite only earns its complexity once decks need to sync across devices.
+~~Today a deck lives in React state. A refresh after a ten-minute textbook run loses
+everything.~~ Decks are stored in IndexedDB: a finished run saves itself, a reload reopens
+the deck you were on, and the landing page lists what you have with rename and delete. No
+server and no setup, as argued. SQLite still doesn't earn its complexity until decks need
+to sync across devices. See [PLAN.md](PLAN.md) for the shape on disk.
 
 ### 2. Stream cards as they're written
 

@@ -3,8 +3,8 @@
 Convert slideshows, PDFs, textbook chapters, etc. into flashcards.
 
 Drop in a file of any supported format, get the same output every time: a deck you can
-flip through on screen, and a double-sided print layout where every definition lands
-exactly behind its own term.
+flip through on screen, saved in your browser so a reload doesn't lose it, and a
+double-sided print layout where every definition lands exactly behind its own term.
 
 Works with a **local model** (free, private, no key) or any **cloud provider**. Pick in the
 app under **Change** — no config files required.
@@ -51,6 +51,20 @@ in `.env.local` and leave the field blank.
 3. Hit **Make flashcards**. Every card comes out the same shape: a short term on the
    front (1–5 words), the full definition on the back.
 4. Click any card to flip it, or hit **Print** for the paper deck.
+5. The deck saves itself. Reload the page and it's still there.
+
+## Saved decks
+
+A finished deck is written to your browser's storage automatically — there's no Save button
+to forget. Reload and you land back on the deck you were reading, not on the upload form.
+
+**All decks** closes the current deck and shows everything you've made, newest first. Click
+the deck's name to rename it; **Delete** removes it for good and asks first. Nothing leaves
+your machine, and nothing is sent to a server — decks are saved in *this* browser, so they
+won't follow you to another device. Use **Export JSON** if you need one somewhere else.
+
+A private window, or a browser set to block site data, will refuse to store anything. The
+app keeps working; it just tells you the deck won't survive a reload.
 
 ## Pointing it at part of a book
 
