@@ -89,6 +89,10 @@ instead of ending up on the wrong card. Long edge mirrors each row left-to-right
 edge reverses the row order. Both sides use an identical fixed grid, so the cut lines
 match on each side of the paper.
 
+The setting drives the cards on screen too: on long edge they turn left-to-right, on short
+edge top-to-bottom — the same motion your hand makes with the printed card, so the preview
+tells you which way the deck will actually read.
+
 ## How it works
 
 | Input | Handling |
@@ -174,16 +178,16 @@ if its term normalizes to one already kept (ignoring case, a parenthetical gloss
 article, and simple plurals), if the document's own glossary says its acronym expands to a
 term already kept, or if its definition says substantially the same thing as one already
 kept. Different figures make definitions different, so "40 units" and "85 units" stay apart.
-The results bar reports how many were merged.
+This happens silently — you get the deck, not a report on how it was assembled.
 
 **Context, so chunks don't invite invention.** Acronym expansions (`URTC = Undergraduate
 Research and Technology Conference`) are harvested from the whole document before splitting
 and attached to every request, so a term defined on page 1 is still understood on page 9.
 Chunks overlap ~320 characters. Temperature is 0.
 
-The results bar reports what the review changed — "3 corrected, 1 unsupported removed".
-Review runs on text sources; image sources skip it, since there's no extracted text to
-check against.
+All of this is internal: cards that fail a check never reach the page. The counts are in
+the API response for scripts and for the benchmark, but the app shows you the deck, not the
+machinery behind it.
 
 Local models have small context windows, so long material is split on paragraph boundaries
 and turned into cards a section at a time, with progress streamed back to the page and

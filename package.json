@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning test/dedupe.test.mjs"
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning test/dedupe.test.mjs && node --experimental-strip-types --disable-warning=ExperimentalWarning test/duplex.test.mjs"
   },
   "dependencies": {
     "jszip": "^3.10.1",

@@ -24,7 +24,6 @@ export default function Home() {
     total: number;
     cards: number;
   } | null>(null);
-  const [audit, setAudit] = useState<{ dropped: number; fixed: number; duplicates: number } | null>(null);
   const [scopeUsed, setScopeUsed] = useState<string | null>(null);
   const [usedModel, setUsedModel] = useState<{ provider: string; name: string } | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -66,7 +65,6 @@ export default function Home() {
     setBusy(true);
     setError(null);
     setProgress(null);
-    setAudit(null);
     try {
       const body = new FormData();
       if (file) body.append("file", file);
@@ -105,11 +103,6 @@ export default function Home() {
           else if (msg.type === "error") throw new Error(msg.error);
           else if (msg.type === "result") {
             setCards(msg.cards as Card[]);
-            setAudit({
-              dropped: msg.dropped ?? 0,
-              fixed: msg.fixed ?? 0,
-              duplicates: msg.duplicates ?? 0,
-            });
             setScopeUsed(msg.scope ?? null);
             setUsedModel({ provider: settings.provider, name: modelFor(settings) });
             setFlipped(new Set());
@@ -171,18 +164,6 @@ export default function Home() {
             <span className="count">
               {scopeUsed ? `${scopeUsed} · ` : ""}
               {cards.length} flashcards
-              {audit && (audit.dropped > 0 || audit.fixed > 0 || audit.duplicates > 0) && (
-                <span className="checked">
-                  {" · "}
-                  {[
-                    audit.fixed > 0 && `${audit.fixed} corrected`,
-                    audit.dropped > 0 && `${audit.dropped} unsupported removed`,
-                    audit.duplicates > 0 && `${audit.duplicates} duplicate${audit.duplicates > 1 ? "s" : ""} merged`,
-                  ]
-                    .filter(Boolean)
-                    .join(", ")}
-                </span>
-              )}
             </span>
             <label className="edge">
               Flip on
@@ -206,7 +187,7 @@ export default function Home() {
             {cards.map((card, i) => (
               <button
                 key={i}
-                className={`flip${flipped.has(i) ? " flipped" : ""}`}
+                className={`flip flip-${flip}${flipped.has(i) ? " flipped" : ""}`}
                 onClick={() => toggle(i)}
               >
                 <div className="flip-inner">

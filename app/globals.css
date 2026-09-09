@@ -257,8 +257,14 @@ select {
   transform-style: preserve-3d;
 }
 
-.flip.flipped .flip-inner {
+/* The card turns about the same axis the paper does, so a deck previewed on
+   screen flips the way the printed deck will. */
+.flip-long.flipped .flip-inner {
   transform: rotateY(180deg);
+}
+
+.flip-short.flipped .flip-inner {
+  transform: rotateX(180deg);
 }
 
 .face {
@@ -284,15 +290,18 @@ select {
 }
 
 .face-back {
-  transform: rotateY(180deg);
   font-size: 14px;
   color: var(--ink);
   line-height: 1.5;
 }
 
-.checked {
-  font-size: 12.5px;
-  color: var(--muted);
+/* Pre-turned on the same axis, so it lands upright when the card comes over. */
+.flip-long .face-back {
+  transform: rotateY(180deg);
+}
+
+.flip-short .face-back {
+  transform: rotateX(180deg);
 }
 
 .scope {

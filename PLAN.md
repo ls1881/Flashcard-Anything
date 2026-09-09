@@ -51,7 +51,12 @@ every definition lands behind its own term once the paper flips:
 - **Short edge** (rotates about the horizontal axis) → reverse the row order.
 
 Both sides render into an identical fixed grid, so cut lines register on each side. Logic
-lives in `lib/duplex.ts`; the flip edge is the app's one print setting.
+lives in `lib/duplex.ts`.
+
+The same setting drives the on-screen deck, which rotates about the axis the paper turns
+about — `rotateY` for long edge, `rotateX` for short. It used to always rotate about Y, so
+a short-edge deck previewed one way and printed another. `test/duplex.test.mjs` covers the
+sheet arithmetic and checks that both halves stay wired to the same setting.
 
 ## Grounding (built)
 
@@ -108,6 +113,10 @@ identical backs:
 
 Covered by `npm test`, including the cases that must *not* collapse — "morpheme" vs "free
 morpheme", and a terse card that must not swallow a detailed one.
+
+Merging is invisible in the UI. Counts ride along in the API response for tooling, but the
+page shows the deck rather than a report on how it was assembled — how many near-duplicates
+a model happened to emit is our problem, not the reader's.
 
 ## Navigation (built)
 
