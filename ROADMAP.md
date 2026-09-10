@@ -9,9 +9,10 @@ a later reader can disagree with it.
 ## The gap worth naming
 
 The app is strongest at *generation* and weakest at *everything after generation*. Decks now
-survive a reload, which closes the worst of it, but a deck still can't be corrected and
-still can't leave the page except as paper or JSON. Editing and Anki export are what's left
-of that gap, and they're worth doing before adding new input formats.
+survive a reload and arrive while the run is still going, which closes the worst of it, but
+a deck still can't be corrected and still can't leave the page except as paper or JSON.
+Editing and Anki export are what's left of that gap, and they're worth doing before adding
+new input formats.
 
 ## Next
 
@@ -25,12 +26,16 @@ the deck you were on, and the landing page lists what you have with rename and d
 server and no setup, as argued. SQLite still doesn't earn its complexity until decks need
 to sync across devices. See [PLAN.md](PLAN.md) for the shape on disk.
 
-### 2. Stream cards as they're written
+### ~~2. Stream cards as they're written~~ — built
 
-Generation already produces cards chunk by chunk, but the page shows nothing until the whole
-run finishes. Emitting each chunk's cards as they land would make a long run *feel*
-dramatically faster without touching the model. The largest perceived-speed win available,
-and the plumbing (NDJSON progress events) is already in place.
+~~Generation already produces cards chunk by chunk, but the page shows nothing until the
+whole run finishes.~~ Each section's cards are now sent down the existing NDJSON stream as
+they land and appear in the same grid the finished deck uses. Measured on a three-section
+run against a local `qwen3:8b`: first cards on screen at 26s, run finished at 44s — 18
+seconds of reading that used to be a blank spinner. The model was never touched.
+
+A run that dies partway now keeps the sections that did finish, rather than discarding the
+lot.
 
 ### 3. Edit a card, or regenerate one
 

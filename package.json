@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "for f in test/*.test.mjs; do echo \"== $f\"; node --experimental-strip-types --disable-warning=ExperimentalWarning \"$f\" || exit 1; done"
+    "test": "for f in test/*.test.mjs; do echo \"== $f\"; node --experimental-strip-types --disable-warning=ExperimentalWarning --import ./test/register-ts.mjs \"$f\" || exit 1; done"
   },
   "dependencies": {
     "jszip": "^3.10.1",

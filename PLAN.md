@@ -29,7 +29,8 @@ to Anki instead of reimplementing spaced repetition here.
 2. Backend normalizes the input to text, strips page furniture, and resolves any requested
    chapter/section/page range.
 3. The chosen model turns each chunk into `{term, definition, evidence}` cards as structured
-   JSON. The quoted evidence is verified in code, and duplicates are merged out.
+   JSON. The quoted evidence is verified in code, and duplicates are merged out. Each
+   section's surviving cards are streamed to the page as they land.
 4. Cards are returned as a flip deck on screen, a double-sided print layout, and a JSON
    export.
 
@@ -57,6 +58,28 @@ The same setting drives the on-screen deck, which rotates about the axis the pap
 about — `rotateY` for long edge, `rotateX` for short. It used to always rotate about Y, so
 a short-edge deck previewed one way and printed another. `test/duplex.test.mjs` covers the
 sheet arithmetic and checks that both halves stay wired to the same setting.
+
+## Streaming (built)
+
+Generation always worked section by section, but the page showed nothing until the last one
+finished — a ten-minute run was a ten-minute spinner. Each section's cards now go down the
+NDJSON stream the progress events already used, as a `{type:"cards"}` message, and land in
+the same grid the finished deck uses. The final `{type:"result"}` still carries the whole
+deck.
+
+What gets streamed is what survived, not what the model said. `overChunks` hands over
+`deck.cards.slice(before)` *after* the evidence check, dedupe and the card cap have run, so
+the batches concatenate to exactly the deck returned at the end and the page can append them
+blindly. A section whose cards were all duplicates sends nothing rather than an empty batch.
+That contract is what `test/stream.test.mjs` checks.
+
+Measured on a three-section run against a local `qwen3:8b`: first cards at 26s, finish at
+44s. The model was not touched; the 18 seconds are pure perceived speed.
+
+Because cards now arrive before the end, a failure partway is no longer all-or-nothing. If
+the stream errors after cards have landed, the page keeps them, saves them, and says the run
+stopped early — losing nine finished sections because the tenth timed out would be worse
+than a short deck.
 
 ## Persistence (built)
 

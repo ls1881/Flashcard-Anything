@@ -215,6 +215,33 @@ button:disabled {
   margin-right: auto;
 }
 
+/* The bar while a run is still going: a small spinner beside the live count. */
+.count.live {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 550;
+  color: var(--muted);
+}
+
+.count.live .spinner {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  border-width: 2px;
+}
+
+/* A run that stopped early still hands over the cards it managed to write. */
+.notice {
+  margin: 0 0 18px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: var(--error-bg);
+  border: 1px solid var(--error-line);
+  color: var(--error-ink);
+  font-size: 13.5px;
+}
+
 /* The deck name doubles as its own rename control. */
 .deck-title {
   font: inherit;

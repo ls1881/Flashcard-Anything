@@ -29,6 +29,10 @@ export default function Home() {
   const [text, setText] = useState("");
   const [scope, setScope] = useState("");
   const [deck, setDeck] = useState<Deck | null>(null);
+  /** Cards that have arrived from the current run but aren't a saved deck yet. */
+  const [streamed, setStreamed] = useState<Card[]>([]);
+  /** Set when a run died partway but had already written real cards. */
+  const [partial, setPartial] = useState<string | null>(null);
   const [decks, setDecks] = useState<DeckMeta[]>([]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -129,6 +133,12 @@ export default function Home() {
     setBusy(true);
     setError(null);
     setProgress(null);
+    setStreamed([]);
+    setPartial(null);
+    setFlipped(new Set());
+    // Kept alongside the state so the catch below can still see what arrived:
+    // a setState value would be stale by the time an error is thrown.
+    const collected: Card[] = [];
     try {
       const body = new FormData();
       if (file) body.append("file", file);
@@ -165,7 +175,12 @@ export default function Home() {
           const msg = JSON.parse(line);
           if (msg.type === "progress") setProgress(msg);
           else if (msg.type === "error") throw new Error(msg.error);
-          else if (msg.type === "result") {
+          else if (msg.type === "cards") {
+            // A section finished. Show its cards now rather than making the
+            // reader wait for the sections still to come.
+            collected.push(...(msg.cards as Card[]));
+            setStreamed([...collected]);
+          } else if (msg.type === "result") {
             const made = newDeck({
               cards: msg.cards as Card[],
               source: file?.name ?? PASTED,
@@ -173,13 +188,30 @@ export default function Home() {
               model: { provider: settings.provider, name: modelFor(settings) },
             });
             setDeck(made);
-            setFlipped(new Set());
+            setStreamed([]);
             void save(made);
           }
         }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong.");
+      const message = e instanceof Error ? e.message : "Something went wrong.";
+      if (collected.length > 0) {
+        // The run died, but sections that already finished wrote real cards.
+        // Throwing away ten minutes of work over a failed last chunk would be
+        // worse than handing over a short deck and saying what happened.
+        const made = newDeck({
+          cards: collected,
+          source: file?.name ?? PASTED,
+          scope: null,
+          model: { provider: settings.provider, name: modelFor(settings) },
+        });
+        setDeck(made);
+        setStreamed([]);
+        setPartial(message);
+        void save(made);
+      } else {
+        setError(message);
+      }
     } finally {
       setBusy(false);
       setProgress(null);
@@ -209,6 +241,7 @@ export default function Home() {
       setDeck(saved);
       setFlipped(new Set());
       setError(null);
+      setPartial(null);
       rememberOpen(id);
     } catch {
       setUnsaved(true);
@@ -244,6 +277,7 @@ export default function Home() {
       await deleteDeck(target.id);
       if (deck?.id === target.id) {
         setDeck(null);
+        setPartial(null);
         rememberOpen(null);
       }
       await refreshDecks();
@@ -255,6 +289,8 @@ export default function Home() {
   /** Back to the form. The open deck stays on disk; this only closes it. */
   function reset() {
     setDeck(null);
+    setStreamed([]);
+    setPartial(null);
     setFile(null);
     setText("");
     setScope("");
@@ -296,6 +332,15 @@ export default function Home() {
     });
   }
 
+  // Shared by the full-page loading panel and the live bar above streamed cards.
+  const phaseLabel = progress
+    ? `${progress.phase === "checking" ? "Checking accuracy" : "Reading"}${
+        progress.total > 1
+          ? ` · section ${Math.min(progress.done + 1, progress.total)} of ${progress.total}`
+          : ""
+      }`
+    : "Reading your material and writing cards…";
+
   // One control, used from the bar and from the deck list.
   const nameField = (
     <input
@@ -312,47 +357,66 @@ export default function Home() {
     />
   );
 
-  if (deck) {
-    const cards = deck.cards;
+  // The deck view doubles as the live view: cards land in this grid as each
+  // section is written, then the finished deck takes over the same grid.
+  const showing = deck ? deck.cards : streamed;
+
+  if (showing.length > 0) {
     return (
       <>
         <div className="wrap screen">
           <div className="bar">
-            {renamingId === deck.id ? (
-              nameField
+            {deck ? (
+              <>
+                {renamingId === deck.id ? (
+                  nameField
+                ) : (
+                  <button
+                    className="deck-title"
+                    title="Click to rename"
+                    onClick={() => startRename(deck)}
+                  >
+                    {deck.name}
+                  </button>
+                )}
+                <span className="count">
+                  {deck.scope ? `${deck.scope} · ` : ""}
+                  {showing.length} flashcards
+                </span>
+                <label className="edge">
+                  Flip on
+                  <select value={flip} onChange={(e) => setFlip(e.target.value as FlipEdge)}>
+                    <option value="long">Long edge</option>
+                    <option value="short">Short edge</option>
+                  </select>
+                </label>
+                <button className="ghost" onClick={() => window.print()}>
+                  Print
+                </button>
+                <button className="ghost" onClick={exportJson}>
+                  Export JSON
+                </button>
+                <button className="ghost" onClick={reset}>
+                  All decks
+                </button>
+              </>
             ) : (
-              <button
-                className="deck-title"
-                title="Click to rename"
-                onClick={() => startRename(deck)}
-              >
-                {deck.name}
-              </button>
+              <span className="count live">
+                <span className="spinner" />
+                {phaseLabel} · {showing.length} card{showing.length === 1 ? "" : "s"} so far
+              </span>
             )}
-            <span className="count">
-              {deck.scope ? `${deck.scope} · ` : ""}
-              {cards.length} flashcards
-            </span>
-            <label className="edge">
-              Flip on
-              <select value={flip} onChange={(e) => setFlip(e.target.value as FlipEdge)}>
-                <option value="long">Long edge</option>
-                <option value="short">Short edge</option>
-              </select>
-            </label>
-            <button className="ghost" onClick={() => window.print()}>
-              Print
-            </button>
-            <button className="ghost" onClick={exportJson}>
-              Export JSON
-            </button>
-            <button className="ghost" onClick={reset}>
-              All decks
-            </button>
           </div>
 
+          {partial && (
+            <div className="notice">
+              This run stopped before it finished — {partial} The {showing.length} card
+              {showing.length === 1 ? "" : "s"} written before that are saved.
+            </div>
+          )}
+
           <div className="grid">
-            {cards.map((card, i) => (
+            {showing.map((card, i) => (
               <button
                 key={i}
                 className={`flip flip-${flip}${flipped.has(i) ? " flipped" : ""}`}
@@ -367,15 +431,21 @@ export default function Home() {
           </div>
 
           <p className="hint">
-            Click a card to flip it. Printing gives you double-sided pages — set your printer to
-            two-sided and match the flip edge above.
-            {unsaved
-              ? " This browser won't save decks, so export the JSON if you need to keep this one."
-              : " This deck is saved in this browser and will still be here after a reload."}
+            {deck ? (
+              <>
+                Click a card to flip it. Printing gives you double-sided pages — set your
+                printer to two-sided and match the flip edge above.
+                {unsaved
+                  ? " This browser won't save decks, so export the JSON if you need to keep this one."
+                  : " This deck is saved in this browser and will still be here after a reload."}
+              </>
+            ) : (
+              "Cards appear as each section is written. The rest are still coming — you can start reading these now."
+            )}
           </p>
         </div>
 
-        <PrintSheets cards={cards} flip={flip} />
+        {deck && <PrintSheets cards={deck.cards} flip={flip} />}
       </>
     );
   }
@@ -391,13 +461,7 @@ export default function Home() {
         {busy ? (
           <div className="loading">
             <div className="spinner" />
-            {progress
-              ? `${progress.phase === "checking" ? "Checking accuracy" : "Reading"}${
-                  progress.total > 1
-                    ? ` · section ${Math.min(progress.done + 1, progress.total)} of ${progress.total}`
-                    : ""
-                }${progress.cards ? ` · ${progress.cards} cards so far` : ""}`
-              : "Reading your material and writing cards…"}
+            {phaseLabel}
             <div className="sub">
               {settings.provider === "ollama"
                 ? "Running on your machine — this can take a minute."

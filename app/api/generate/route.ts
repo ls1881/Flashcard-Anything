@@ -198,6 +198,9 @@ export async function POST(req: Request) {
           glossary,
           maxCards: MAX_CARDS,
           onProgress: (p: Progress) => send({ type: "progress", ...p }),
+          // Sent as each section lands so the page can fill in while the rest
+          // of the run continues. The final `result` repeats the whole deck.
+          onCards: (batch: Card[]) => send({ type: "cards", cards: batch }),
         });
         cards.push(...result.cards);
         dropped += result.dropped;

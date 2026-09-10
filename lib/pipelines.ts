@@ -26,6 +26,12 @@ export type PipelineCtx = {
   glossary: string[];
   maxCards: number;
   onProgress: (p: Progress) => void;
+  /**
+   * Cards accepted into the deck, handed over section by section as they are
+   * written. Only what survived the evidence check, dedupe and the card cap, so
+   * the batches concatenate to exactly the deck returned at the end.
+   */
+  onCards?: (cards: Card[]) => void;
 };
 
 export type PipelineResult = {
@@ -134,8 +140,13 @@ export function mergeInto(deck: Deck, cards: Card[], maxCards: number): number {
   return addCards(deck, cards, maxCards);
 }
 
-/** Walk the chunks, letting the caller decide what happens to each chunk's cards. */
-async function overChunks(
+/**
+ * Walk the chunks, letting the caller decide what happens to each chunk's cards.
+ *
+ * Exported for `test/stream.test.mjs`, which drives it with a canned handler to
+ * check the streaming contract without going near a model.
+ */
+export async function overChunks(
   ctx: PipelineCtx,
   handle: (chunk: string, shown: string, index: number, soFar: number) => Promise<{
     cards: Card[];
@@ -155,7 +166,11 @@ async function overChunks(
     dropped += result.dropped;
     fixed += result.fixed;
     // Counted separately from `dropped`: a repeat isn't a grounding failure.
+    const before = deck.cards.length;
     duplicates += mergeInto(deck, result.cards, ctx.maxCards);
+    // Hand over what was actually kept, not what the model returned. The page
+    // appends these verbatim, so a rejected card must never reach it.
+    if (deck.cards.length > before) ctx.onCards?.(deck.cards.slice(before));
     if (deck.cards.length >= ctx.maxCards) break;
   }
   return { cards: deck.cards, dropped, fixed, duplicates };

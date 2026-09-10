@@ -48,10 +48,14 @@ in `.env.local` and leave the field blank.
 
 1. Drop in a **PDF, .pptx, .docx, .txt/.md/.csv, or an image** — or paste text.
 2. Optionally say **which part** you want: `chapter 3, section 2`.
-3. Hit **Make flashcards**. Every card comes out the same shape: a short term on the
-   front (1–5 words), the full definition on the back.
+3. Hit **Make flashcards**. Cards appear as each section is written, so you can start
+   reading long before the run finishes. Every card comes out the same shape: a short term
+   on the front (1–5 words), the full definition on the back.
 4. Click any card to flip it, or hit **Print** for the paper deck.
 5. The deck saves itself. Reload the page and it's still there.
+
+If a run fails partway, the sections that already finished are kept and saved — you get a
+short deck and a note saying it stopped early, rather than nothing.
 
 ## Saved decks
 
