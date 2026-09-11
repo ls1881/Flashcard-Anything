@@ -9,10 +9,9 @@ a later reader can disagree with it.
 ## The gap worth naming
 
 The app is strongest at *generation* and weakest at *everything after generation*. Decks now
-survive a reload and arrive while the run is still going, which closes the worst of it, but
-a deck still can't be corrected and still can't leave the page except as paper or JSON.
-Editing and Anki export are what's left of that gap, and they're worth doing before adding
-new input formats.
+survive a reload, arrive while the run is still going, and can be corrected a card at a
+time. What's left of the gap is getting a deck out of the page: Anki export is the one that
+matters, and it's worth doing before adding new input formats.
 
 ## Next
 
@@ -37,11 +36,16 @@ seconds of reading that used to be a blank spinner. The model was never touched.
 A run that dies partway now keeps the sections that did finish, rather than discarding the
 lot.
 
-### 3. Edit a card, or regenerate one
+### ~~3. Edit a card, or regenerate one~~ — built
 
-When 18 of 20 cards are right, the only recourse is rerunning everything. Inline editing plus
-a per-card regenerate turns a nearly-good deck into a usable one for the cost of a single
-model call.
+~~When 18 of 20 cards are right, the only recourse is rerunning everything.~~ Every card
+now has **Edit** and **Rewrite**. Edit is inline — term and definition, saved to the deck.
+Rewrite is one model call against the slice of the source that card came from: measured at
+6.4s against a local `qwen3:8b`, where regenerating the deck was minutes.
+
+Decks now keep the text they were written from, which is what makes a rewrite possible
+after a reload — the upload itself is long gone. Decks made before that keep working and
+say why they can't rewrite.
 
 ### 4. Anki export
 

@@ -27,7 +27,17 @@ export type DeckMeta = {
   updatedAt: number;
 };
 
-export type Deck = DeckMeta & { cards: Card[] };
+export type Deck = DeckMeta & {
+  cards: Card[];
+  /**
+   * The cleaned text the cards were written from, kept so a single card can be
+   * regenerated later. The uploaded file is long gone by then — extraction
+   * happened on the server and the File object dies with the page — so without
+   * this, regenerating would have nothing to read. Decks made before this
+   * existed have none, and regenerate says so rather than inventing.
+   */
+  sourceText: string | null;
+};
 
 export const PASTED = "pasted text";
 
@@ -102,6 +112,7 @@ export function newDeck(input: {
   source: string | null;
   scope: string | null;
   model: DeckModel | null;
+  sourceText?: string | null;
   name?: string;
   now?: number;
 }): Deck {
@@ -113,10 +124,34 @@ export function newDeck(input: {
     scope: input.scope,
     model: input.model,
     cards: input.cards,
+    sourceText: input.sourceText ?? null,
     count: input.cards.length,
     createdAt: at,
     updatedAt: at,
   };
+}
+
+/**
+ * Swap one card, leaving the rest of the deck alone. Out-of-range indexes are
+ * ignored rather than appending: the caller is editing a card that is on screen,
+ * and a stale index means the deck moved under it.
+ */
+export function replaceCard(
+  deck: Deck,
+  index: number,
+  card: Card,
+  now: number = Date.now()
+): Deck {
+  if (!Number.isInteger(index) || index < 0 || index >= deck.cards.length) return deck;
+  const term = card.term.replace(/\s+/g, " ").trim();
+  const definition = card.definition.replace(/\s+/g, " ").trim();
+  // A card with no front or no back isn't a card; keep what was there.
+  if (!term || !definition) return deck;
+
+  const cards = deck.cards.map((existing, i) =>
+    i === index ? { ...existing, term, definition, ...(card.evidence !== undefined ? { evidence: card.evidence } : {}) } : existing
+  );
+  return { ...deck, cards, updatedAt: now };
 }
 
 /**
@@ -155,6 +190,7 @@ export function normalizeDeck(raw: unknown): Deck | null {
     scope: typeof d.scope === "string" ? d.scope : null,
     model,
     cards,
+    sourceText: typeof d.sourceText === "string" && d.sourceText ? d.sourceText : null,
     // Recomputed, never trusted: a stale count would misreport the list.
     count: cards.length,
     createdAt,
@@ -162,9 +198,13 @@ export function normalizeDeck(raw: unknown): Deck | null {
   };
 }
 
-/** Metadata only — used for the deck list, so the cards can stay on disk. */
+/**
+ * Metadata only — used for the deck list, so the cards and the source text can
+ * stay on disk. The source text is the larger of the two; carrying it into a
+ * list of twenty decks would be the whole point of the summary thrown away.
+ */
 export function summarize(deck: Deck): DeckMeta {
-  const { cards: _cards, ...meta } = deck;
+  const { cards: _cards, sourceText: _sourceText, ...meta } = deck;
   return meta;
 }
 

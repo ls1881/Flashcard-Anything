@@ -16,6 +16,7 @@ import {
   newDeck,
   putDeck,
   renameDeck,
+  replaceCard,
   type Deck,
   type DeckMeta,
 } from "@/lib/decks";
@@ -33,6 +34,13 @@ export default function Home() {
   const [streamed, setStreamed] = useState<Card[]>([]);
   /** Set when a run died partway but had already written real cards. */
   const [partial, setPartial] = useState<string | null>(null);
+  /** Index of the card open for editing, and the draft being typed into it. */
+  const [editing, setEditing] = useState<number | null>(null);
+  const [draftTerm, setDraftTerm] = useState("");
+  const [draftDefinition, setDraftDefinition] = useState("");
+  /** Index of the card currently being rewritten by the model. */
+  const [rewriting, setRewriting] = useState<number | null>(null);
+  const [cardError, setCardError] = useState<string | null>(null);
   const [decks, setDecks] = useState<DeckMeta[]>([]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -135,10 +143,13 @@ export default function Home() {
     setProgress(null);
     setStreamed([]);
     setPartial(null);
+    setCardError(null);
+    setEditing(null);
     setFlipped(new Set());
     // Kept alongside the state so the catch below can still see what arrived:
     // a setState value would be stale by the time an error is thrown.
     const collected: Card[] = [];
+    let sourceText = "";
     try {
       const body = new FormData();
       if (file) body.append("file", file);
@@ -175,6 +186,7 @@ export default function Home() {
           const msg = JSON.parse(line);
           if (msg.type === "progress") setProgress(msg);
           else if (msg.type === "error") throw new Error(msg.error);
+          else if (msg.type === "source") sourceText = String(msg.sourceText ?? "");
           else if (msg.type === "cards") {
             // A section finished. Show its cards now rather than making the
             // reader wait for the sections still to come.
@@ -186,6 +198,7 @@ export default function Home() {
               source: file?.name ?? PASTED,
               scope: msg.scope ?? null,
               model: { provider: settings.provider, name: modelFor(settings) },
+              sourceText,
             });
             setDeck(made);
             setStreamed([]);
@@ -204,6 +217,7 @@ export default function Home() {
           source: file?.name ?? PASTED,
           scope: null,
           model: { provider: settings.provider, name: modelFor(settings) },
+          sourceText,
         });
         setDeck(made);
         setStreamed([]);
@@ -323,6 +337,69 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
+  /** Persist a card change and keep the deck list's count and timestamp honest. */
+  async function commit(next: Deck) {
+    setDeck(next);
+    try {
+      await putDeck(next);
+      await refreshDecks();
+    } catch {
+      setUnsaved(true);
+    }
+  }
+
+  function startEdit(index: number, card: Card) {
+    setEditing(index);
+    setDraftTerm(card.term);
+    setDraftDefinition(card.definition);
+    setCardError(null);
+  }
+
+  async function commitEdit() {
+    const index = editing;
+    if (index === null || !deck) return;
+    setEditing(null);
+    const next = replaceCard(deck, index, {
+      term: draftTerm,
+      definition: draftDefinition,
+      evidence: deck.cards[index]?.evidence,
+    });
+    // replaceCard returns the same deck when nothing usable changed.
+    if (next !== deck) await commit(next);
+  }
+
+  /** One model call against the slice of the source this card came from. */
+  async function rewrite(index: number) {
+    if (!deck || rewriting !== null) return;
+    const card = deck.cards[index];
+    if (!card) return;
+    setRewriting(index);
+    setCardError(null);
+    try {
+      const res = await fetch("/api/card", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          card,
+          sourceText: deck.sourceText ?? "",
+          otherCards: deck.cards.filter((_, i) => i !== index),
+          provider: settings.provider,
+          model: modelFor(settings),
+          apiKey: keyFor(settings),
+          baseUrl: baseUrlFor(settings) || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Couldn't rewrite that card.");
+      const next = replaceCard(deck, index, data.card as Card);
+      if (next !== deck) await commit(next);
+    } catch (e) {
+      setCardError(e instanceof Error ? e.message : "Couldn't rewrite that card.");
+    } finally {
+      setRewriting(null);
+    }
+  }
+
   function toggle(i: number) {
     setFlipped((prev) => {
       const next = new Set(prev);
@@ -415,18 +492,74 @@ export default function Home() {
             </div>
           )}
 
+          {cardError && <div className="notice">{cardError}</div>}
+
           <div className="grid">
             {showing.map((card, i) => (
-              <button
-                key={i}
-                className={`flip flip-${flip}${flipped.has(i) ? " flipped" : ""}`}
-                onClick={() => toggle(i)}
-              >
-                <div className="flip-inner">
-                  <div className="face face-front">{card.term}</div>
-                  <div className="face face-back">{card.definition}</div>
-                </div>
-              </button>
+              <div className="card" key={i}>
+                {editing === i ? (
+                  <div className="card-edit">
+                    <input
+                      className="edit-term"
+                      value={draftTerm}
+                      aria-label="Term"
+                      autoFocus
+                      onChange={(e) => setDraftTerm(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitEdit();
+                        else if (e.key === "Escape") setEditing(null);
+                      }}
+                    />
+                    <textarea
+                      className="edit-definition"
+                      value={draftDefinition}
+                      aria-label="Definition"
+                      onChange={(e) => setDraftDefinition(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setEditing(null);
+                      }}
+                    />
+                    <div className="card-edit-actions">
+                      <button className="ghost" onClick={commitEdit}>
+                        Save
+                      </button>
+                      <button className="linkish" onClick={() => setEditing(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      className={`flip flip-${flip}${flipped.has(i) ? " flipped" : ""}${
+                        rewriting === i ? " busy" : ""
+                      }`}
+                      onClick={() => toggle(i)}
+                    >
+                      <div className="flip-inner">
+                        <div className="face face-front">{card.term}</div>
+                        <div className="face face-back">{card.definition}</div>
+                      </div>
+                    </button>
+                    {/* Only on a saved deck: a card still streaming has nowhere
+                        to save an edit to yet. */}
+                    {deck && (
+                      <div className="card-actions">
+                        <button className="linkish" onClick={() => startEdit(i, card)}>
+                          Edit
+                        </button>
+                        <button
+                          className="linkish"
+                          disabled={rewriting !== null}
+                          onClick={() => rewrite(i)}
+                        >
+                          {rewriting === i ? "Rewriting…" : "Rewrite"}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             ))}
           </div>
 

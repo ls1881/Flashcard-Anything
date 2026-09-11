@@ -52,10 +52,29 @@ in `.env.local` and leave the field blank.
    reading long before the run finishes. Every card comes out the same shape: a short term
    on the front (1–5 words), the full definition on the back.
 4. Click any card to flip it, or hit **Print** for the paper deck.
-5. The deck saves itself. Reload the page and it's still there.
+5. Fix anything that came out wrong — see below. The deck saves itself either way; reload
+   the page and it's still there.
 
 If a run fails partway, the sections that already finished are kept and saved — you get a
 short deck and a note saying it stopped early, rather than nothing.
+
+## Fixing a card
+
+No deck comes out perfect, and rerunning the whole document to fix two cards is a poor
+trade. Hovering a card shows two controls:
+
+- **Edit** — change the term or the definition by hand, in place. Enter saves, Escape
+  abandons.
+- **Rewrite** — ask the model for a different definition. It's one call against the part of
+  your source that card came from, not a rerun, so it takes seconds rather than minutes. The
+  term is left alone; use **Edit** if the front is the problem.
+
+A rewrite has to quote your source to be accepted, and it isn't allowed to restate a card
+you already have. If it can't manage either, the card is left exactly as it was and the page
+says why.
+
+Decks made before this feature existed have no saved source text, so **Rewrite** will tell
+you to edit by hand instead.
 
 ## Saved decks
 

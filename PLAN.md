@@ -18,9 +18,10 @@ Convert slideshows, PDFs, textbook chapters, notes, and images into flashcards, 
 ## Not built yet
 
 There is no server-side database and no sync — decks are saved in the browser they were made
-in and go no further. Cards cannot be edited or regenerated individually. There is no study
-scheduler, and one is not planned — see [ROADMAP.md](ROADMAP.md), which argues for exporting
-to Anki instead of reimplementing spaced repetition here.
+in and go no further. A deck can only leave the page as paper or JSON; there is no Anki
+export yet. There is no study scheduler, and one is not planned — see
+[ROADMAP.md](ROADMAP.md), which argues for exporting to Anki instead of reimplementing
+spaced repetition here.
 
 ## Core flow
 
@@ -35,7 +36,8 @@ to Anki instead of reimplementing spaced repetition here.
    export.
 
 The card shape is `Card { term, definition, evidence? }` — deliberately small. A finished run
-is wrapped in a `Deck` and written to IndexedDB; see "Persistence" below.
+is wrapped in a `Deck`, along with the text it was written from, and stored in IndexedDB; see
+"Persistence" below.
 
 ## Roadmap
 
@@ -80,6 +82,41 @@ Because cards now arrive before the end, a failure partway is no longer all-or-n
 the stream errors after cards have landed, the page keeps them, saves them, and says the run
 stopped early — losing nine finished sections because the tenth timed out would be worse
 than a short deck.
+
+## Fixing a card (built)
+
+When 18 of 20 cards are right, rerunning the document to fix two was the only recourse. Each
+card now has **Edit** and **Rewrite**.
+
+Edit is inline and local: term and definition, written straight to the deck through
+`replaceCard`, which trims, refuses a card that would end up with no front or no back, and
+ignores a stale index rather than appending. The quoted evidence is kept, since it still
+points at where the card came from.
+
+Rewrite is one model call, in `lib/regenerate.ts` behind `POST /api/card`. Three decisions
+worth recording:
+
+- **It reads a window, not the document.** `sourceWindow` locates the card's evidence and
+  cuts ~1500 characters either side. Sending a whole chapter back for one card would be
+  slower and, on a small local context window, would push the relevant passage out entirely.
+  The match runs on a normalized copy with an index map back to the original, because a
+  model's quote differs from the source in whitespace and punctuation far more often than in
+  words.
+- **The rewrite is held to the bar the deck was built with.** The new quote must pass the
+  same `isGrounded` check, and the new definition must not restate another card, or the
+  deduper's work would quietly come undone one rewrite at a time. A rewrite that fails
+  either check changes nothing and says why.
+- **The term stays put.** Rewrite replaces the definition and evidence. A wrong front is a
+  job for Edit, and holding the term steady keeps the deck's dedupe keys stable.
+
+Measured at 6.4s against a local `qwen3:8b`, against minutes to regenerate the deck.
+
+This is why a deck stores `sourceText`: extraction happens on the server and the uploaded
+File dies with the page, so by the time anyone rewrites a card, the deck's own copy is the
+only one left. It is sent once at the start of the run rather than with the result, so a run
+that dies partway still leaves a deck that can be repaired. Decks written before this have
+none, and rewrite says so instead of inventing from nothing. The deck list drops it along
+with the cards — carrying it into a summary of twenty decks would defeat the summary.
 
 ## Persistence (built)
 

@@ -190,6 +190,12 @@ export async function POST(req: Request) {
           MAX_CHUNKS
         );
 
+        // Sent before any card so it reaches the deck even if the run dies
+        // partway. The original upload is gone by the time someone rewrites a
+        // card — extraction happened here, and the File died with the page — so
+        // this is the only copy that survives.
+        send({ type: "source", sourceText: body });
+
         const pipeline = pipelineFor(pipelineId);
         const result = await pipeline.run({
           cfg,

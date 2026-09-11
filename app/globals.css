@@ -384,14 +384,110 @@ select {
   gap: 16px;
 }
 
+/* The grid item. The flip surface is a button inside it, so the per-card
+   controls can be buttons too rather than illegal nested ones. */
+.card {
+  position: relative;
+}
+
 .flip {
   perspective: 1200px;
   height: 200px;
+  width: 100%;
   cursor: pointer;
   border: none;
   padding: 0;
   background: none;
   text-align: inherit;
+}
+
+.flip.busy {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* Out of the way until the card is wanted, but reachable by keyboard: the
+   controls stay when anything inside the card has focus. */
+.card-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.card:hover .card-actions,
+.card:focus-within .card-actions {
+  opacity: 1;
+}
+
+.card-actions .linkish {
+  font-size: 12px;
+  padding: 3px 6px;
+  text-decoration: none;
+  border-radius: 6px;
+}
+
+.card-actions .linkish:hover:not(:disabled) {
+  background: var(--field);
+  color: var(--ink);
+}
+
+.card-actions .linkish:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.card-edit {
+  height: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--accent);
+  background: var(--panel);
+}
+
+.edit-term {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--ink);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 9px;
+}
+
+.edit-definition {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 9px;
+  flex: 1;
+  resize: none;
+}
+
+.card-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-edit-actions .ghost {
+  padding: 5px 12px;
+  font-size: 13px;
 }
 
 .flip-inner {
