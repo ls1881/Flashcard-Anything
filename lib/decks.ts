@@ -88,7 +88,7 @@ export function formatWhen(ts: number, now: number = Date.now()): string {
 }
 
 /** A deck name reduced to something safe to hand a file system. */
-export function exportFileName(name: string): string {
+export function deckSlug(name: string): string {
   const slug = name
     .normalize("NFKD")
     // Accents, punctuation and emoji all go; what's left is filename-safe.
@@ -97,7 +97,16 @@ export function exportFileName(name: string): string {
     .replace(/[\s_]+/g, "-")
     .replace(/^[-.]+|[-.]+$/g, "")
     .slice(0, 80);
-  return `${slug || "flashcards"}.flashcards.json`;
+  return slug || "flashcards";
+}
+
+export function exportFileName(name: string): string {
+  return `${deckSlug(name)}.flashcards.json`;
+}
+
+/** The Anki package name for a deck. */
+export function ankiFileName(name: string): string {
+  return `${deckSlug(name)}.apkg`;
 }
 
 function newId(): string {

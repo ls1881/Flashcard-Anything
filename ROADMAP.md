@@ -8,10 +8,11 @@ a later reader can disagree with it.
 
 ## The gap worth naming
 
-The app is strongest at *generation* and weakest at *everything after generation*. Decks now
-survive a reload, arrive while the run is still going, and can be corrected a card at a
-time. What's left of the gap is getting a deck out of the page: Anki export is the one that
-matters, and it's worth doing before adding new input formats.
+The app is strongest at *generation* and weakest at *everything after generation*. That gap
+is now closed: decks survive a reload, arrive while the run is still going, can be corrected
+a card at a time, and leave as an Anki package that imports into the app people actually
+study in. What's left below is breadth — more input formats and better card shapes — rather
+than the hole that was here.
 
 ## Next
 
@@ -47,11 +48,20 @@ Decks now keep the text they were written from, which is what makes a rewrite po
 after a reload — the upload itself is long gone. Decks made before that keep working and
 say why they can't rewrite.
 
-### 4. Anki export
+### ~~4. Anki export~~ — built
 
-Anki already has the scheduler, the mobile apps, and sync. Exporting a `.apkg` (or a CSV Anki
-imports) is a day of work and delivers more than building spaced repetition here would in
-weeks. See "Not planned" below.
+~~Anki already has the scheduler, the mobile apps, and sync.~~ **Export Anki** writes a real
+`.apkg`: a SQLite collection in Anki's schema 11, zipped with its media manifest. Not a CSV
+— the reader double-clicks the file and gets a named deck, a proper note type, and styled
+cards, with no import mapping to do.
+
+Note guids are derived from the deck and the term rather than randomly, which is what makes
+it *re-*importable: fix a card here, export again, and Anki updates the note in place
+**keeping your review history** instead of adding a duplicate.
+
+Verified against the real Anki library rather than against the docs — `npm run test:anki`
+drives an actual collection through importing the file twice. See "Not planned" below; this
+is the export that makes not building a scheduler the right call.
 
 ### 5. A4 and card-size options
 

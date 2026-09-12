@@ -7,7 +7,7 @@ Convert slideshows, PDFs, textbook chapters, notes, and images into flashcards, 
 - **Frontend/Backend:** Next.js (App Router, TypeScript) — one codebase, API routes double as the backend, deploys straight to Vercel.
 - **Generation:** the user picks a provider in the app — **Ollama** (default; local, free, no key), **Anthropic**, **OpenAI**, **OpenRouter**, **Google**, **Groq**, **DeepSeek**, **Mistral**, **Together**, or a **Custom** OpenAI-compatible URL. Providers declare an `ApiStyle`, and only three exist: `openai` (nearly everything), `anthropic` (Messages API with a tool call), and `ollama` (its native API). Adding a provider is a preset, not new client code. Structured output is requested as a JSON schema, falling back to `json_object` and then to tolerant parsing, since servers vary in what they support. Cloud keys live in browser storage or `.env.local` — never in the repo.
 - **Theme:** light or dark, chosen explicitly — there is no "follow the system" option, so `data-theme` is always present and the palette never depends on an OS setting. Tokens are defined for light on `:root` and overridden under `[data-theme="dark"]`. Dark is a dimmed charcoal rather than black, which reads better over long sessions; every pairing clears WCAG AA (body text at 13.7:1). A pre-paint script in the layout applies the stored choice so there's no flash. Print always renders on white.
-- **Export:** a versioned JSON document (`version`, `generatedAt`, `source`, `scope`, `model`, `cards`), so other tools get a stable contract. The API returns the same card shape.
+- **Export:** an Anki `.apkg` for studying, and a versioned JSON document (`version`, `generatedAt`, `source`, `scope`, `model`, `cards`) so other tools get a stable contract. The API returns the same card shape.
 - **Text extraction:** done locally, because a local text model can't read binaries — `unpdf` for PDFs, OOXML unpacking for `.pptx` (slides + speaker notes) and `.docx`, plus EPUB, RTF and HTML. Format is detected from the bytes, not the extension. Images are transcribed by a vision model first, then run through the same grounded pipeline as any document.
 - **Chunking:** required here in a way it wasn't with a hosted frontier model — local context windows are small, so material is split on paragraph boundaries, generated section by section, and merged with duplicate terms dropped.
 - **Storage:** decks live in the browser's IndexedDB — no server, no setup, and nothing to deploy. It holds megabyte decks that would blow past the ~5MB `localStorage` string quota. A server-side database (SQLite via Prisma, swappable to Postgres) only earns its complexity once decks need to sync across devices, which needs auth first.
@@ -18,10 +18,9 @@ Convert slideshows, PDFs, textbook chapters, notes, and images into flashcards, 
 ## Not built yet
 
 There is no server-side database and no sync — decks are saved in the browser they were made
-in and go no further. A deck can only leave the page as paper or JSON; there is no Anki
-export yet. There is no study scheduler, and one is not planned — see
-[ROADMAP.md](ROADMAP.md), which argues for exporting to Anki instead of reimplementing
-spaced repetition here.
+in and go no further. There is no study scheduler, and one is not planned: decks export to
+Anki, which has one, along with the mobile apps and the sync this doesn't. See
+[ROADMAP.md](ROADMAP.md).
 
 ## Core flow
 
@@ -32,8 +31,8 @@ spaced repetition here.
 3. The chosen model turns each chunk into `{term, definition, evidence}` cards as structured
    JSON. The quoted evidence is verified in code, and duplicates are merged out. Each
    section's surviving cards are streamed to the page as they land.
-4. Cards are returned as a flip deck on screen, a double-sided print layout, and a JSON
-   export.
+4. Cards are returned as a flip deck on screen, a double-sided print layout, an Anki `.apkg`,
+   and a JSON export.
 
 The card shape is `Card { term, definition, evidence? }` — deliberately small. A finished run
 is wrapped in a `Deck`, along with the text it was written from, and stored in IndexedDB; see
@@ -82,6 +81,43 @@ Because cards now arrive before the end, a failure partway is no longer all-or-n
 the stream errors after cards have landed, the page keeps them, saves them, and says the run
 stopped early — losing nine finished sections because the tenth timed out would be worse
 than a short deck.
+
+## Anki export (built)
+
+**Export Anki** produces a real `.apkg`, not a CSV. A CSV would have been a fraction of the
+work, but it hands the reader an import-mapping dialog and carries no deck name, no note
+type and no styling; an .apkg is a file you double-click. `lib/anki.ts` builds it behind
+`POST /api/anki`.
+
+The format is a zip of `collection.anki2` — a SQLite database in Anki's own schema — plus a
+`media` manifest (`{}` here, since there is no media). Decisions worth recording:
+
+- **Schema 11, the legacy format.** Newer Anki writes `.anki21b`, which older clients cannot
+  read. The point of an export is to open wherever the reader happens to be, and every Anki
+  from 2.1 onward still reads schema 11.
+- **Guids are derived, not random.** Anki matches notes by guid on import, so `guidFor` hashes
+  the deck id and the term. Fix a card here, export again, and Anki *updates* the note —
+  keeping its review history — rather than adding a second copy of the deck. Anki's own guids
+  are random, which is right for authoring and exactly wrong for a deck that gets regenerated.
+- **Fields are HTML, so card text is escaped.** A definition containing `<` would otherwise
+  render as markup or vanish. Newlines become `<br>`, since Anki does not honour them.
+- **It is built on the server.** The file is a SQLite database and `node:sqlite` only exists
+  in Node. That also keeps it dependency-free: SQLite is built into Node, and `jszip` was
+  already here for reading `.pptx`.
+
+The note type has three fields — Term, Definition, Source — with one card template, so each
+card is one note. Cards arrive unstudied, so the reader's own scheduler takes over. Notes are
+tagged `flashcard-anything` plus a tag for the source file, so an imported deck can be found
+and undone in the Anki browser.
+
+Checked two ways. `test/anki.test.mjs` opens the generated database and asserts Anki's
+invariants — the field separator, the sort-field checksum, `req` on the note type, one card
+per note, unique ids. That proves the file is well formed, not that Anki accepts it, so
+`test/anki-import-check.mjs` (`npm run test:anki`) drives a real Anki collection through
+importing the package, re-importing it, and importing an edited version, then asserts the
+render, the absence of duplicates, the preserved review history, and a clean integrity check.
+It needs the Anki Python library, which is far too heavy to depend on here, so it skips
+cleanly when that is absent.
 
 ## Fixing a card (built)
 

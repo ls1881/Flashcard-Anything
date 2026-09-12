@@ -3,8 +3,9 @@
 Convert slideshows, PDFs, textbook chapters, etc. into flashcards.
 
 Drop in a file of any supported format, get the same output every time: a deck you can
-flip through on screen, saved in your browser so a reload doesn't lose it, and a
-double-sided print layout where every definition lands exactly behind its own term.
+flip through on screen, saved in your browser so a reload doesn't lose it, an Anki deck you
+can import and keep studying, and a double-sided print layout where every definition lands
+exactly behind its own term.
 
 Works with a **local model** (free, private, no key) or any **cloud provider**. Pick in the
 app under **Change** — no config files required.
@@ -39,6 +40,14 @@ npm install
 npm run dev                  # http://localhost:3000
 ```
 
+Tests are `npm test`. There is also `npm run test:anki`, which checks the Anki export by
+importing it with Anki itself; it needs the Anki Python library and skips without it:
+
+```bash
+python3 -m venv /tmp/ankienv && /tmp/ankienv/bin/pip install anki
+ANKI_PYTHON=/tmp/ankienv/bin/python npm run test:anki
+```
+
 That's the whole setup for local use. For OpenRouter or Anthropic, click **Change** in the
 app and paste a key — it's stored in your browser only and never written to the repo. If
 you'd rather keep keys out of the browser, put `ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY`
@@ -51,12 +60,30 @@ in `.env.local` and leave the field blank.
 3. Hit **Make flashcards**. Cards appear as each section is written, so you can start
    reading long before the run finishes. Every card comes out the same shape: a short term
    on the front (1–5 words), the full definition on the back.
-4. Click any card to flip it, or hit **Print** for the paper deck.
+4. Click any card to flip it, hit **Print** for the paper deck, or **Export Anki** to carry
+   it into Anki.
 5. Fix anything that came out wrong — see below. The deck saves itself either way; reload
    the page and it's still there.
 
 If a run fails partway, the sections that already finished are kept and saved — you get a
 short deck and a note saying it stopped early, rather than nothing.
+
+## Sending a deck to Anki
+
+**Export Anki** gives you a real `.apkg` — double-click it, or use *File → Import* in Anki.
+There is no CSV mapping to fill in: the deck arrives named, with its own note type, styled
+cards, and every card unstudied so Anki's scheduler starts clean.
+
+Each card becomes a note with three fields — **Term**, **Definition** and **Source** — and
+one card per note. Notes are tagged `flashcard-anything` and with the name of the file they
+came from, so you can find or undo an import from Anki's browser.
+
+**You can export the same deck again.** Fix a card here, export, and re-import: Anki updates
+the notes it already has instead of giving you a second copy of the deck, and **your review
+history is kept**. That works because each note's identity is derived from the deck and the
+term rather than generated fresh each time.
+
+Works with Anki 2.1 and everything since, including AnkiDroid and AnkiMobile.
 
 ## Fixing a card
 

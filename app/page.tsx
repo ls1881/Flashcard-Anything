@@ -7,6 +7,7 @@ import { DEFAULT_SETTINGS, PROVIDERS, type Settings } from "@/lib/providers";
 import type { Card, FlipEdge } from "@/lib/duplex";
 import {
   PASTED,
+  ankiFileName,
   available,
   deleteDeck,
   exportFileName,
@@ -41,6 +42,7 @@ export default function Home() {
   /** Index of the card currently being rewritten by the model. */
   const [rewriting, setRewriting] = useState<number | null>(null);
   const [cardError, setCardError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [decks, setDecks] = useState<DeckMeta[]>([]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -326,15 +328,10 @@ export default function Home() {
       count: deck.cards.length,
       cards: deck.cards.map(({ term, definition, evidence }) => ({ term, definition, evidence })),
     };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = exportFileName(deck.name);
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    download(
+      new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }),
+      exportFileName(deck.name)
+    );
   }
 
   /** Persist a card change and keep the deck list's count and timestamp honest. */
@@ -397,6 +394,50 @@ export default function Home() {
       setCardError(e instanceof Error ? e.message : "Couldn't rewrite that card.");
     } finally {
       setRewriting(null);
+    }
+  }
+
+  /** Hand the browser a file the way the JSON export does. */
+  function download(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * The .apkg is a SQLite database, so the server builds it. The deck id goes
+   * along as a stable key: re-exporting after edits then updates the notes
+   * already in Anki rather than adding a second copy of the deck.
+   */
+  async function exportAnki() {
+    if (!deck || exporting) return;
+    setExporting(true);
+    setCardError(null);
+    try {
+      const res = await fetch("/api/anki", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: deck.name,
+          cards: deck.cards,
+          deckKey: deck.id,
+          source: deck.source,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Couldn't build the Anki package.");
+      }
+      download(await res.blob(), ankiFileName(deck.name));
+    } catch (e) {
+      setCardError(e instanceof Error ? e.message : "Couldn't build the Anki package.");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -469,6 +510,9 @@ export default function Home() {
                 </label>
                 <button className="ghost" onClick={() => window.print()}>
                   Print
+                </button>
+                <button className="ghost" onClick={exportAnki} disabled={exporting}>
+                  {exporting ? "Building…" : "Export Anki"}
                 </button>
                 <button className="ghost" onClick={exportJson}>
                   Export JSON
