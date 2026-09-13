@@ -10,7 +10,18 @@ export type LlmConfig = {
   apiKey?: string;
   /** Overrides the preset endpoint; required for the "custom" provider. */
   baseUrl?: string;
+  /**
+   * Defaults to 0, which is what grounded card writing wants: the same document
+   * should give the same deck. Rewriting one card is the opposite case — asking
+   * again at temperature 0 returns the answer you already rejected — so that
+   * path raises it deliberately.
+   */
+  temperature?: number;
 };
+
+function temperatureOf(cfg: LlmConfig): number {
+  return typeof cfg.temperature === "number" ? cfg.temperature : 0;
+}
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -227,7 +238,7 @@ async function openAiCompatible(
 
   const base = {
     model: cfg.model,
-    temperature: 0,
+    temperature: temperatureOf(cfg),
     max_tokens: 8000,
     stream: false,
     messages: [
@@ -308,7 +319,7 @@ async function ollamaNative(
         stream: false,
         think: false,
         format: schema,
-        options: { temperature: 0, num_ctx: OLLAMA_CONTEXT, num_predict: MAX_OUTPUT_TOKENS },
+        options: { temperature: temperatureOf(cfg), num_ctx: OLLAMA_CONTEXT, num_predict: MAX_OUTPUT_TOKENS },
         messages: [
           { role: "system", content: system },
           { role: "user", content: text, ...(images.length ? { images } : {}) },
@@ -351,7 +362,7 @@ async function anthropicRaw(cfg: LlmConfig, system: string, parts: Part[]): Prom
       body: JSON.stringify({
         model: cfg.model,
         max_tokens: 8000,
-        temperature: 0,
+        temperature: temperatureOf(cfg),
         system,
         messages: [{ role: "user", content: anthropicContent(parts) }],
       }),
@@ -394,7 +405,7 @@ async function anthropic(
       body: JSON.stringify({
         model: cfg.model,
         max_tokens: 8000,
-        temperature: 0,
+        temperature: temperatureOf(cfg),
         system,
         messages: [{ role: "user", content }],
         tools: [
@@ -481,7 +492,7 @@ export async function completeText(cfg: LlmConfig, system: string, parts: Part[]
           model: cfg.model,
           stream: false,
           think: false,
-          options: { temperature: 0, num_ctx: OLLAMA_CONTEXT, num_predict: MAX_OUTPUT_TOKENS },
+          options: { temperature: temperatureOf(cfg), num_ctx: OLLAMA_CONTEXT, num_predict: MAX_OUTPUT_TOKENS },
           messages: [
             { role: "system", content: system },
             { role: "user", content: text, ...(images.length ? { images } : {}) },
@@ -510,7 +521,7 @@ export async function completeText(cfg: LlmConfig, system: string, parts: Part[]
       headers,
       body: JSON.stringify({
         model: cfg.model,
-        temperature: 0,
+        temperature: temperatureOf(cfg),
         stream: false,
         messages: [
           { role: "system", content: system },

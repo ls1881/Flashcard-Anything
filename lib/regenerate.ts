@@ -99,17 +99,37 @@ The definition must come from the SOURCE TEXT and nothing else. You are not bein
 Rules for the definition:
 - 1 to 3 sentences, under 45 words.
 - Understandable without seeing the term.
-- It must be a genuinely different attempt from the rejected one below — not a reworded copy of it. If the rejected definition was wrong, correct it; if it was vague, be specific; if it missed the point the source makes, make that point.
-- Never restate what one of the other cards already covers.`;
+- Never restate what one of the other cards already covers.
+
+THE REWRITE RULE:
+The reader has already read the rejected definition below and asked for something else, so returning the same content in different words is a failed answer. Change what the card actually says, using material from the source the rejected version left out:
+- Say how or why, not just what — the mechanism, the conditions, the sequence.
+- Include the specifics the source gives: figures, names, stages, inputs and outputs.
+- If the rejected definition merely echoes the term, define it instead.
+- If the rejected definition was wrong, correct it and say what the source actually claims.
+Do not begin by restating the term.`;
 
 export type Regenerated =
   | { ok: true; card: Card }
   | { ok: false; reason: string };
 
 /**
- * One model call for one card. The result is held to the same bar the deck was
- * built with: the quote has to appear in the source, and the definition must not
- * restate a card already in the deck.
+ * Card writing runs at temperature 0, because the same document should give the
+ * same deck. A rewrite is the opposite case: asking the same model the same
+ * question about the same passage at temperature 0 returns the answer the reader
+ * has just rejected. So this path samples, and samples harder on a second try.
+ */
+const TEMPERATURES = [0.8, 1.0];
+
+/**
+ * One model call for one card — two if the first comes back saying what the old
+ * card already said.
+ *
+ * The result is held to the bar the deck was built with (the quote must appear
+ * in the source, and it must not restate another card) plus one this path needs
+ * of its own: it must not restate the definition it is replacing. Without that,
+ * a "rewrite" that reshuffles the same words looks like a button that does
+ * nothing.
  */
 export async function regenerateCard(input: {
   cfg: LlmConfig;
@@ -117,7 +137,12 @@ export async function regenerateCard(input: {
   sourceText: string;
   /** Definitions of the deck's other cards, so the rewrite doesn't duplicate one. */
   otherCards: Card[];
+  /** Swapped out by the tests; production always uses the real model. */
+  complete?: (cfg: LlmConfig, system: string, parts: Part[]) => Promise<unknown>;
 }): Promise<Regenerated> {
+  const complete =
+    input.complete ??
+    ((cfg, system, parts) => completeJson(cfg, system, parts, SCHEMA, "emit_definition"));
   const window = sourceWindow(input.sourceText, input.card.evidence ?? "");
   if (!window.trim()) {
     return { ok: false, reason: "This deck has no source text saved, so there's nothing to read." };
@@ -127,50 +152,77 @@ export async function regenerateCard(input: {
     .slice(0, 40)
     .map((c) => `- ${c.term}: ${c.definition}`)
     .join("\n");
+  const previous = definitionTokens(input.card.definition);
 
-  const parts: Part[] = [
-    { type: "text", text: `SOURCE TEXT:\n${window}` },
-    {
-      type: "text",
-      text:
-        `TERM: ${input.card.term}\n` +
-        `REJECTED DEFINITION (the reader asked for a different one):\n${input.card.definition}`,
-    },
-    ...(others
-      ? [{ type: "text" as const, text: `OTHER CARDS IN THIS DECK — do not restate these:\n${others}` }]
-      : []),
-    {
-      type: "text",
-      text: `Write a new definition of "${input.card.term}" from the source text above.`,
-    },
-  ];
+  /** Attempts that came back too close to the old card, to show the model. */
+  const tooSimilar: string[] = [];
+  let lastReason = `"${input.cfg.model}" didn't return a definition.`;
 
-  const raw = (await completeJson(input.cfg, SYSTEM, parts, SCHEMA, "emit_definition")) as
-    | { definition?: unknown; evidence?: unknown }
-    | null;
+  for (const temperature of TEMPERATURES) {
+    const parts: Part[] = [
+      { type: "text", text: `SOURCE TEXT:\n${window}` },
+      {
+        type: "text",
+        text:
+          `TERM: ${input.card.term}\n` +
+          `REJECTED DEFINITION (the reader has read this and asked for something else):\n` +
+          input.card.definition,
+      },
+      ...(others
+        ? [{ type: "text" as const, text: `OTHER CARDS IN THIS DECK — do not restate these:\n${others}` }]
+        : []),
+      ...(tooSimilar.length
+        ? [{
+            type: "text" as const,
+            text:
+              `YOUR PREVIOUS ATTEMPT WAS REJECTED for saying the same thing as the ` +
+              `rejected definition:\n${tooSimilar.join("\n")}\n` +
+              `Write something that makes a different point from the source.`,
+          }]
+        : []),
+      {
+        type: "text",
+        text: `Write a new definition of "${input.card.term}" from the source text above.`,
+      },
+    ];
 
-  const definition = String(raw?.definition ?? "").replace(/\s+/g, " ").trim();
-  const evidence = String(raw?.evidence ?? "").replace(/\s+/g, " ").trim();
+    const raw = (await complete({ ...input.cfg, temperature }, SYSTEM, parts)) as
+      | { definition?: unknown; evidence?: unknown }
+      | null;
 
-  if (!definition) {
-    return { ok: false, reason: `"${input.cfg.model}" didn't return a definition.` };
+    const definition = String(raw?.definition ?? "").replace(/\s+/g, " ").trim();
+    const evidence = String(raw?.evidence ?? "").replace(/\s+/g, " ").trim();
+
+    if (!definition) continue;
+
+    if (!isGrounded(evidence, window)) {
+      lastReason =
+        `"${input.cfg.model}" couldn't quote the source for a new definition, so nothing was changed.`;
+      continue;
+    }
+
+    const meaning = definitionTokens(definition);
+
+    // The point of the button: a rewrite that says what the card already said
+    // is not a rewrite. Try again rather than pretending something happened.
+    if (sameMeaning(meaning, previous)) {
+      tooSimilar.push(definition);
+      lastReason =
+        `"${input.cfg.model}" kept producing the same definition. The source may not support ` +
+        `a different one — edit the card by hand if you want it worded differently.`;
+      continue;
+    }
+
+    // A rewrite that restates another card would quietly reintroduce the
+    // duplicate the deduper removed.
+    if (input.otherCards.some((c) => sameMeaning(meaning, definitionTokens(c.definition)))) {
+      lastReason =
+        "The rewrite said the same thing as another card in the deck, so nothing was changed.";
+      continue;
+    }
+
+    return { ok: true, card: { term: input.card.term, definition, evidence } };
   }
-  if (!isGrounded(evidence, window)) {
-    return {
-      ok: false,
-      reason: `"${input.cfg.model}" couldn't quote the source for a new definition, so nothing was changed.`,
-    };
-  }
 
-  // The same bar the deck was built with: a rewrite that restates another card
-  // would quietly reintroduce the duplicate the deduper removed.
-  const meaning = definitionTokens(definition);
-  if (input.otherCards.some((c) => sameMeaning(meaning, definitionTokens(c.definition)))) {
-    return {
-      ok: false,
-      reason: "The rewrite said the same thing as another card in the deck, so nothing was changed.",
-    };
-  }
-
-  return { ok: true, card: { term: input.card.term, definition, evidence } };
+  return { ok: false, reason: lastReason };
 }

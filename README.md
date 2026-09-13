@@ -92,16 +92,20 @@ trade. Hovering a card shows two controls:
 
 - **Edit** — change the term or the definition by hand, in place. Enter saves, Escape
   abandons.
-- **Rewrite** — ask the model for a different definition. It's one call against the part of
-  your source that card came from, not a rerun, so it takes seconds rather than minutes. The
-  term is left alone; use **Edit** if the front is the problem.
+- **AI rewrite** — hand the card back to the model for a different definition. It's one call
+  against the part of your source that card came from, not a rerun, so it takes seconds
+  rather than minutes. The term is left alone; use **Edit** if the front is the problem.
 
-A rewrite has to quote your source to be accepted, and it isn't allowed to restate a card
-you already have. If it can't manage either, the card is left exactly as it was and the page
-says why.
+A rewrite has to earn its place. It must quote your source, it can't restate another card,
+and — the one that matters in practice — it can't just reword the definition it is
+replacing. If the model comes back saying the same thing, it's asked again more forcefully;
+if it still can't, the card is left exactly as it was and the page tells you the source may
+not support a different answer. Card writing runs at temperature 0 so a document always
+gives the same deck, but a rewrite samples: asking the same question the same way would only
+return the answer you just rejected.
 
-Decks made before this feature existed have no saved source text, so **Rewrite** will tell
-you to edit by hand instead.
+Decks made before this feature existed have no saved source text, so **AI rewrite** will
+tell you to edit by hand instead.
 
 ## Saved decks
 
@@ -153,9 +157,11 @@ instead of ending up on the wrong card. Long edge mirrors each row left-to-right
 edge reverses the row order. Both sides use an identical fixed grid, so the cut lines
 match on each side of the paper.
 
-The setting drives the cards on screen too: on long edge they turn left-to-right, on short
-edge top-to-bottom — the same motion your hand makes with the printed card, so the preview
-tells you which way the deck will actually read.
+The setting drives the cards on screen too, read against the card in front of you: a card is
+wider than it is tall, so **long edge** turns it top-to-bottom about its long edges, and
+**short edge** turns it left-to-right about its short ones. (The paper is portrait, so the
+same two words mean the opposite axes for the sheet — which is what the reordering above is
+doing. Printing is unaffected by which way the preview spins.)
 
 ## How it works
 

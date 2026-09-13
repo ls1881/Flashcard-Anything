@@ -498,14 +498,17 @@ select {
   transform-style: preserve-3d;
 }
 
-/* The card turns about the same axis the paper does, so a deck previewed on
-   screen flips the way the printed deck will. */
+/* The axis named by the setting, read against the card you are looking at: a
+   card is wider than it is tall, so its long edges are the top and bottom and
+   it turns about the horizontal axis. (The sheet of paper is the other way up —
+   portrait, so its long edges are the sides — which is why the print
+   arithmetic in lib/duplex.ts mirrors the opposite axis to this one.) */
 .flip-long.flipped .flip-inner {
-  transform: rotateY(180deg);
+  transform: rotateX(180deg);
 }
 
 .flip-short.flipped .flip-inner {
-  transform: rotateX(180deg);
+  transform: rotateY(180deg);
 }
 
 .face {
@@ -538,11 +541,11 @@ select {
 
 /* Pre-turned on the same axis, so it lands upright when the card comes over. */
 .flip-long .face-back {
-  transform: rotateY(180deg);
+  transform: rotateX(180deg);
 }
 
 .flip-short .face-back {
-  transform: rotateX(180deg);
+  transform: rotateY(180deg);
 }
 
 .scope {

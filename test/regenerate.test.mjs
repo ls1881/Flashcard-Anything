@@ -1,6 +1,7 @@
 #!/usr/bin/env node --experimental-strip-types
 // Run: npm test
-import { sourceWindow } from "../lib/regenerate.ts";
+import { sourceWindow, regenerateCard } from "../lib/regenerate.ts";
+import { definitionTokens, sameMeaning } from "../lib/dedupe.ts";
 import { replaceCard, newDeck, normalizeDeck, summarize } from "../lib/decks.ts";
 
 let failures = 0;
@@ -99,6 +100,109 @@ check("a non-string is rejected",
 check("an empty string reads as null, so rewrite reports it honestly",
   normalizeDeck({ id: "a", sourceText: "" }).sourceText, null);
 check("the deck list does not carry it", "sourceText" in summarize(deck), false);
+
+// A long enough source that a quote can be found in it and there is room to say
+// something different the second time.
+const SOURCE =
+  "Stomata are pores on the leaf surface that allow gas exchange. Each pore is " +
+  "flanked by two guard cells, which swell to open it and slacken to close it. " +
+  "Opening admits the carbon dioxide photosynthesis needs, at the cost of losing " +
+  "water vapour, so most plants close their stomata during drought.";
+
+const OLD = { term: "Stomata", definition: "Pores on the leaf surface that allow gas exchange.",
+  evidence: "Stomata are pores on the leaf surface that allow gas exchange" };
+
+/** Drive regenerateCard with canned model replies instead of a model. */
+async function rewriteWith(replies, { card = OLD, otherCards = [] } = {}) {
+  const calls = [];
+  const result = await regenerateCard({
+    cfg: { provider: "ollama", model: "test-model" },
+    card, sourceText: SOURCE, otherCards,
+    complete: async (cfg, _system, parts) => {
+      calls.push({ temperature: cfg.temperature, prompt: parts.map((p) => p.text).join("\n") });
+      return replies[Math.min(calls.length - 1, replies.length - 1)];
+    },
+  });
+  return { result, calls };
+}
+
+const reply = (definition, evidence = "Stomata are pores on the leaf surface that allow gas exchange") =>
+  ({ definition, evidence });
+
+console.log("\nthe bug: a rewrite that restates the card is not a rewrite:");
+check("the pair that slipped through before is recognised as the same meaning",
+  sameMeaning(
+    definitionTokens("Pores on the leaf surface that allow gas exchange."),
+    definitionTokens("Stomata are pores on the leaf surface that allow the gas exchange photosynthesis requires.")
+  ), true);
+
+const echoed = await rewriteWith([
+  reply("Stomata are pores on the leaf surface that allow the gas exchange photosynthesis requires."),
+]);
+check("a reworded copy is refused rather than saved", echoed.result.ok, false);
+check("and it says the model kept repeating itself",
+  echoed.result.reason.includes("kept producing the same definition"), true);
+check("and it points at editing by hand", echoed.result.reason.includes("by hand"), true);
+check("it tried twice before giving up", echoed.calls.length, 2);
+
+console.log("\nasking again means asking differently, or the answer cannot change:");
+check("the first attempt samples rather than running at temperature 0",
+  echoed.calls[0].temperature > 0, true);
+check("the second attempt samples harder still",
+  echoed.calls[1].temperature > echoed.calls[0].temperature, true);
+check("the retry is told what was too similar",
+  echoed.calls[1].prompt.includes("YOUR PREVIOUS ATTEMPT WAS REJECTED"), true);
+check("and is shown the attempt itself",
+  echoed.calls[1].prompt.includes("photosynthesis requires"), true);
+check("the first attempt carries no such note",
+  echoed.calls[0].prompt.includes("YOUR PREVIOUS ATTEMPT"), false);
+
+console.log("\na genuinely different definition is accepted:");
+const better = await rewriteWith([
+  reply("Guard cells flank each pore, swelling to open it and slackening to close it, which trades water vapour for carbon dioxide.")
+]);
+check("accepted", better.result.ok, true);
+check("only one call was needed", better.calls.length, 1);
+check("the new definition is stored", better.result.card.definition.startsWith("Guard cells flank"), true);
+check("the term is left alone", better.result.card.term, "Stomata");
+check("the new evidence is stored", better.result.card.evidence.length > 0, true);
+
+console.log("\na second attempt can rescue a first one that echoed:");
+const rescued = await rewriteWith([
+  reply("Stomata are pores on the leaf surface that allow the gas exchange photosynthesis requires."),
+  reply("Guard cells flank each pore, swelling to open it and slackening to close it, which trades water vapour for carbon dioxide."),
+]);
+check("accepted on the retry", rescued.result.ok, true);
+check("it took both attempts", rescued.calls.length, 2);
+check("the second answer is the one kept",
+  rescued.result.card.definition.startsWith("Guard cells flank"), true);
+
+console.log("\nthe old bars still apply:");
+const ungrounded = await rewriteWith([
+  { definition: "Something the source never says about quantum chromodynamics.",
+    evidence: "quantum chromodynamics of the strong nuclear force" },
+]);
+check("an unquotable definition is refused", ungrounded.result.ok, false);
+check("and says the quote failed", ungrounded.result.reason.includes("couldn't quote the source"), true);
+
+const duplicate = await rewriteWith(
+  [reply("Guard cells flank each pore, swelling to open it and slackening to close it, which trades water vapour for carbon dioxide.")],
+  { otherCards: [{ term: "Guard cells",
+      definition: "Guard cells flank each pore, swelling to open it and slackening to close it, trading water vapour for carbon dioxide.",
+      evidence: "e" }] }
+);
+check("a rewrite that restates another card is refused", duplicate.result.ok, false);
+check("and says so", duplicate.result.reason.includes("same thing as another card"), true);
+
+const empty = await rewriteWith([{ definition: "   ", evidence: "x" }]);
+check("an empty definition is refused", empty.result.ok, false);
+
+const noSource = await regenerateCard({
+  cfg: { provider: "ollama", model: "m" }, card: OLD, sourceText: "", otherCards: [],
+  complete: async () => { throw new Error("the model should never be called"); },
+});
+check("a deck with no source text never reaches the model", noSource.ok, false);
+check("and explains why", noSource.reason.includes("no source text"), true);
 
 console.log(failures === 0 ? "\nall rewrite checks passed" : `\n${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

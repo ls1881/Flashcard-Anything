@@ -90,14 +90,21 @@ const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8")
 const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
 check("the card carries its edge as a class",
   /className=\{`flip flip-\$\{flip\}/.test(page), true);
-check("long edge turns about the vertical axis",
-  /\.flip-long\.flipped \.flip-inner \{\s*transform: rotateY\(180deg\);/.test(css), true);
-check("short edge turns about the horizontal axis",
-  /\.flip-short\.flipped \.flip-inner \{\s*transform: rotateX\(180deg\);/.test(css), true);
+// A card is wider than it is tall, so its long edges are the top and bottom and
+// "long edge" turns it about the horizontal axis. The paper is portrait, so the
+// same words name the opposite axis there — hence the print arithmetic above
+// mirroring columns where the card turns about X.
+check("long edge turns the card about its long (horizontal) edge",
+  /\.flip-long\.flipped \.flip-inner \{\s*transform: rotateX\(180deg\);/.test(css), true);
+check("short edge turns the card about its short (vertical) edge",
+  /\.flip-short\.flipped \.flip-inner \{\s*transform: rotateY\(180deg\);/.test(css), true);
 check("the back face is pre-turned on the long-edge axis",
-  /\.flip-long \.face-back \{\s*transform: rotateY\(180deg\);/.test(css), true);
+  /\.flip-long \.face-back \{\s*transform: rotateX\(180deg\);/.test(css), true);
 check("the back face is pre-turned on the short-edge axis",
-  /\.flip-short \.face-back \{\s*transform: rotateX\(180deg\);/.test(css), true);
+  /\.flip-short \.face-back \{\s*transform: rotateY\(180deg\);/.test(css), true);
+check("the two axes are never the same, whichever way round they are",
+  /\.flip-long\.flipped[^}]*rotateX/.test(css) !== /\.flip-short\.flipped[^}]*rotateX/.test(css),
+  true);
 
 console.log(failures === 0 ? "\nall duplex checks passed" : `\n${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

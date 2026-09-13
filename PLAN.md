@@ -55,10 +55,21 @@ every definition lands behind its own term once the paper flips:
 Both sides render into an identical fixed grid, so cut lines register on each side. Logic
 lives in `lib/duplex.ts`.
 
-The same setting drives the on-screen deck, which rotates about the axis the paper turns
-about — `rotateY` for long edge, `rotateX` for short. It used to always rotate about Y, so
-a short-edge deck previewed one way and printed another. `test/duplex.test.mjs` covers the
-sheet arithmetic and checks that both halves stay wired to the same setting.
+The same setting drives the on-screen deck, which used to always rotate about Y whatever the
+setting said.
+
+The axis it turns about now is read against the *card*, not the sheet: a card is 3.75in wide
+by 3.333in tall, so its long edges are the top and bottom and "long edge" turns it about the
+horizontal axis (`rotateX`), with "short edge" about the vertical (`rotateY`). The sheet is
+portrait, so the same two words name the opposite axes there — which is why `backSheetOrder`
+mirrors columns for the long edge while the card turns about X.
+
+That is a deliberate split, not an oversight. The dropdown has to keep the printer's wording
+because it exists to match the printer's setting, but a reader looking at a wide card on
+screen reads "long edge" as that card's long edge, and seeing it spin the other way looks
+like a bug. Print correctness lives entirely in `lib/duplex.ts` and is unaffected by which
+way the preview turns. `test/duplex.test.mjs` covers the sheet arithmetic and checks that the
+preview stays wired to the setting, on opposite axes.
 
 ## Streaming (built)
 
@@ -129,8 +140,8 @@ Edit is inline and local: term and definition, written straight to the deck thro
 ignores a stale index rather than appending. The quoted evidence is kept, since it still
 points at where the card came from.
 
-Rewrite is one model call, in `lib/regenerate.ts` behind `POST /api/card`. Three decisions
-worth recording:
+AI rewrite is one model call, in `lib/regenerate.ts` behind `POST /api/card` — two if the
+first comes back saying what the card already said. Four decisions worth recording:
 
 - **It reads a window, not the document.** `sourceWindow` locates the card's evidence and
   cuts ~1500 characters either side. Sending a whole chapter back for one card would be
@@ -144,8 +155,18 @@ worth recording:
   either check changes nothing and says why.
 - **The term stays put.** Rewrite replaces the definition and evidence. A wrong front is a
   job for Edit, and holding the term steady keeps the deck's dedupe keys stable.
+- **It samples, and it checks it actually said something new.** Generation runs at
+  temperature 0 so a document always gives the same deck; a rewrite at temperature 0 returns
+  the definition the reader just rejected, which is what shipped first and read as a button
+  that did nothing. So `LlmConfig` grew an optional `temperature`, this path uses 0.8 and
+  then 1.0 on a retry, and the result is compared against the definition it replaces with the
+  same `sameMeaning` test the deduper uses. A near-copy triggers the retry, shown its own
+  rejected attempt; a second near-copy is reported rather than saved, because the source may
+  genuinely support only one reading.
 
-Measured at 6.4s against a local `qwen3:8b`, against minutes to regenerate the deck.
+Measured at 4-7s against a local `qwen3:8b`, against minutes to regenerate the deck. On the
+card that first exposed the near-copy problem, the rewrite now shares about a third of its
+content words with the definition it replaced, where before it was a restatement.
 
 This is why a deck stores `sourceText`: extraction happens on the server and the uploaded
 File dies with the page, so by the time anyone rewrites a card, the deck's own copy is the

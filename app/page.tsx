@@ -589,15 +589,20 @@ export default function Home() {
                         to save an edit to yet. */}
                     {deck && (
                       <div className="card-actions">
-                        <button className="linkish" onClick={() => startEdit(i, card)}>
+                        <button
+                          className="linkish"
+                          title="Change this card yourself"
+                          onClick={() => startEdit(i, card)}
+                        >
                           Edit
                         </button>
                         <button
                           className="linkish"
                           disabled={rewriting !== null}
+                          title="Ask the model for a different definition"
                           onClick={() => rewrite(i)}
                         >
-                          {rewriting === i ? "Rewriting…" : "Rewrite"}
+                          {rewriting === i ? "AI rewriting…" : "AI rewrite"}
                         </button>
                       </div>
                     )}
