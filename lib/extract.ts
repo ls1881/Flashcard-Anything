@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import { extractText, getDocumentProxy } from "unpdf";
+import { ocrAvailable, ocrPages } from "./ocr";
 
 export const MAX_BYTES = 100 * 1024 * 1024;
 
@@ -46,6 +47,21 @@ async function pdfToPages(buf: Buffer): Promise<string[]> {
   const pdf = await getDocumentProxy(new Uint8Array(buf));
   const { text } = await extractText(pdf, { mergePages: false });
   return (Array.isArray(text) ? text : [text]).map((p) => String(p ?? "").trim());
+}
+
+/**
+ * Does this PDF carry a text layer worth reading, or is it a scan?
+ *
+ * "Any text at all" is the wrong test. A scanner stamps a page number, a
+ * library stamps a copyright line, and a cover page is often the one page that
+ * was ever digital — each leaves a handful of characters behind, which was
+ * enough to convince the old check the file was a document and skip reading the
+ * pages. Judge it per page instead: a real page of prose runs to hundreds of
+ * characters, so anything averaging less than a short line is furniture.
+ */
+function hasTextLayer(pages: string[]): boolean {
+  const chars = pages.join("").replace(/\s+/g, "").length;
+  return chars >= 100 && chars >= pages.length * 25;
 }
 
 /** One entry per slide, which doubles as the page unit for slide ranges. */
@@ -155,21 +171,28 @@ const MAX_SCAN_PAGES = 12;
 /**
  * Render a text-less PDF to page images.
  *
- * 150dpi is the trade: enough for a vision model to read body text off a
- * photocopy, small enough that a dozen pages don't exhaust a local model's
- * context. Rendering happens here rather than in the browser because the PDF
- * was already parsed here and shipping pages back and forth would double the
- * work.
+ * 150dpi is the trade: enough to read body text off a photocopy, small enough
+ * that a dozen pages don't exhaust a local model's context. Rendering happens
+ * here rather than in the browser because the PDF was already parsed here and
+ * shipping pages back and forth would double the work.
  */
-export async function scanToSource(buf: Buffer, name: string): Promise<Source> {
+async function renderPages(buf: Buffer): Promise<Buffer[]> {
   const { getDocumentProxy, renderPageAsImage } = await import("unpdf");
   const bytes = new Uint8Array(buf);
-  const doc = await getDocumentProxy(new Uint8Array(bytes));
-  const total = doc.numPages;
-  if (!total) throw new Error(`"${name}" has no pages.`);
+
+  // A PDF damaged enough that it won't reopen for rendering is not an error on
+  // its own: whatever text came out of it the first time is still worth having,
+  // and the caller is the one that knows whether there was any.
+  let total: number;
+  try {
+    total = (await getDocumentProxy(new Uint8Array(bytes))).numPages;
+  } catch {
+    return [];
+  }
+  if (!total) return [];
 
   const wanted = Math.min(total, MAX_SCAN_PAGES);
-  const dataUrls: string[] = [];
+  const pngs: Buffer[] = [];
   for (let page = 1; page <= wanted; page++) {
     try {
       const png = await renderPageAsImage(new Uint8Array(bytes), page, {
@@ -177,17 +200,88 @@ export async function scanToSource(buf: Buffer, name: string): Promise<Source> {
         // unpdf has no canvas of its own in Node; it wants one handed to it.
         canvasImport: () => import("@napi-rs/canvas") as never,
       });
-      dataUrls.push(`data:image/png;base64,${Buffer.from(png).toString("base64")}`);
+      pngs.push(Buffer.from(png));
     } catch {
       // One unrenderable page shouldn't lose the rest of the chapter.
     }
   }
-  if (!dataUrls.length) {
+  return pngs;
+}
+
+/** Below this, OCR found page numbers and speckle rather than a document. */
+const MIN_OCR_CHARS = 200;
+
+/** A text layer this thin is furniture, not a document worth falling back to. */
+const MIN_THIN_CHARS = 40;
+
+/**
+ * A scanned PDF, read.
+ *
+ * OCR first: tesseract is fast, deterministic, and needs no model at all,
+ * which matters because the model someone has configured is usually a text-only
+ * one that returns nothing for every page. Only when OCR is missing or comes
+ * back with nothing — handwriting, a whiteboard photo, a page that is mostly
+ * diagram — do the pages go to the vision model as images.
+ */
+export async function scanToSource(
+  buf: Buffer,
+  name: string,
+  textLayer: string[] = []
+): Promise<Source> {
+  const pngs = await renderPages(buf);
+  if (!pngs.length && !density(textLayer)) {
     throw new Error(
       `"${name}" has no text and its pages couldn't be rendered either. Export a text-based PDF instead.`
     );
   }
-  return { kind: "scan", dataUrls, name };
+
+  if (pngs.length && (await ocrAvailable())) {
+    const read = (await ocrPages(pngs)).map(stripControlChars).filter(Boolean);
+    if (density(read) >= MIN_OCR_CHARS) {
+      return {
+        kind: "text",
+        text: `Source document "${name}" (read by OCR):\n\n${read.join("\n\n")}`,
+        pages: read,
+      };
+    }
+  }
+
+  // Whatever text layer there was got here by being too thin to trust on its
+  // own, but a handful of real sentences still beats handing a vision model a
+  // page it will read as nothing — and beats failing outright when there is no
+  // vision model to hand it to.
+  const kept = textLayer.filter(Boolean);
+  if (density(kept) >= MIN_THIN_CHARS) {
+    return { kind: "text", text: `Source document "${name}":\n\n${kept.join("\n\n")}`, pages: kept };
+  }
+
+  return {
+    kind: "scan",
+    dataUrls: pngs.map((png) => `data:image/png;base64,${png.toString("base64")}`),
+    name,
+  };
+}
+
+/** Characters that aren't whitespace — the only measure of text worth having. */
+function density(pages: string[]): number {
+  return pages.join("").replace(/\s+/g, "").length;
+}
+
+/**
+ * A photo or screenshot, read by OCR when it is a picture of text.
+ *
+ * A screenshot of lecture slides is the common case and tesseract handles it
+ * outright. A diagram, a whiteboard, or anything handwritten gives back too
+ * little to be a document, and falls through to the vision model unchanged.
+ */
+export async function imageToSource(buf: Buffer, type: string): Promise<Source> {
+  const dataUrl = `data:${type};base64,${buf.toString("base64")}`;
+  if (!(await ocrAvailable())) return { kind: "image", dataUrl };
+
+  const [page] = await ocrPages([buf]).catch(() => [""]);
+  const text = stripControlChars(page ?? "");
+  if (density([text]) < MIN_OCR_CHARS) return { kind: "image", dataUrl };
+  return { kind: "text", text, pages: [text] };
 }
 
 /**
@@ -466,9 +560,7 @@ export async function fileToSource(file: File): Promise<Source> {
   const name = file.name;
   const lower = name.toLowerCase();
 
-  if (IMAGE_TYPES.has(file.type)) {
-    return { kind: "image", dataUrl: `data:${file.type};base64,${buf.toString("base64")}` };
-  }
+  if (IMAGE_TYPES.has(file.type)) return await imageToSource(buf, file.type);
 
   // Audio and video are decided by name: the bytes are a container format that
   // says nothing useful about whether there is speech inside.
@@ -479,11 +571,14 @@ export async function fileToSource(file: File): Promise<Source> {
   let pages: string[];
   switch (kind) {
     case "pdf":
-      pages = await pdfToPages(buf);
-      // No text layer means a scan. Photocopied readers are exactly what
-      // students have, so rather than refusing, render the pages and let the
-      // vision model read them — the same path an uploaded photo already takes.
-      if (!pages.join("").trim()) return await scanToSource(buf, name);
+      // Control bytes are stripped before the scan test, not after it: a PDF
+      // whose text layer is nothing but broken glyph codes used to look like a
+      // document here and come out empty two steps later, reported as
+      // "couldn't read any text" with no attempt made to read the pages.
+      pages = (await pdfToPages(buf)).map(stripControlChars);
+      // No usable text layer means a scan. Photocopied readers are exactly what
+      // students have, so rather than refusing, render the pages and read them.
+      if (!hasTextLayer(pages)) return await scanToSource(buf, name, pages);
       break;
     case "pptx":
       pages = await pptxToPages(buf);

@@ -27,7 +27,7 @@ anything not listed. Keys can also come from the environment — `ANTHROPIC_API_
 `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`,
 `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `TOGETHER_API_KEY`, `CUSTOM_LLM_API_KEY`.
 
-**Appearance** (light or dark) is in the same panel.
+**Light or dark** is the sun/moon button in the top right.
 
 ## Setup
 
@@ -99,8 +99,16 @@ works offline.
 - **A YouTube lecture** — paste the video link and its captions become the source. English
   captions are preferred when the video has them. A video with captions turned off will say
   so rather than failing quietly.
-- **A scanned PDF** — one with no text layer is no longer refused. Its pages are rendered and
-  read by a vision model, so point the app at one (`ollama pull qwen2.5vl:7b`) first.
+- **A scanned PDF** — a photocopy with no usable text layer is rendered and read by OCR. That
+  needs `tesseract`, which the app looks up rather than bundles:
+
+  ```bash
+  brew install tesseract        # or: apt install tesseract-ocr
+  ```
+
+  Without it, the pages go to a vision model instead (`ollama pull qwen2.5vl:7b`). OCR is
+  tried first because it needs no model at all and is faster and more accurate on printed
+  body text; the vision model is the better reader for handwriting and whiteboards.
 - **A recording** — an `.mp3`, `.m4a`, `.wav` or video file is transcribed on your machine.
   That needs two things installed, and the app will tell you if they're missing:
 
@@ -226,7 +234,7 @@ doing. Printing is unaffected by which way the preview spins.)
 | .epub | Chapters read in spine order |
 | .rtf, .html | Markup stripped |
 | .txt/.md/.csv | Read directly |
-| Images | Sent to the model as an image — **needs a vision model** (`ollama pull qwen2.5vl:7b`) |
+| Images | Read by OCR when it's a picture of text, otherwise sent to a vision model |
 
 Format is detected from the file's bytes rather than its extension, so a mislabelled or
 extension-less file still works. Legacy `.doc`/`.ppt`, Pages/Keynote, and files that aren't
@@ -317,14 +325,15 @@ and turned into cards a section at a time, with progress streamed back to the pa
 duplicate terms merged out. Cloud providers get much larger chunks, so they usually finish
 in one pass.
 
-Images take an extra step: the vision model transcribes the page first, and the
-transcription then goes through the same grounded pipeline as any document, so an image
+Images and scans take an extra step: the page is transcribed first — by OCR where tesseract
+is installed and the page is printed text, by a vision model otherwise — and the
+transcription then goes through the same grounded pipeline as any document, so a photocopy
 gets the same evidence check and review as a PDF.
 
 **Limits:**
 
-- Scanned/image-only PDFs have no extractable text — screenshot the pages and upload them
-  as images with a vision model instead.
+- A scan with neither `tesseract` installed nor a vision model configured will say so rather
+  than guessing. Install one or the other.
 - Transparent PNGs can reach the model as a black rectangle. Save as JPEG if a screenshot
   comes back empty.
 - Small vision models are weak on dense maths and can loop; generation is capped so that

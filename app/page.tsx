@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import PrintSheets from "@/components/PrintSheets";
 import SettingsPanel, { baseUrlFor, keyFor, modelFor } from "@/components/Settings";
+import ThemeToggle from "@/components/ThemeToggle";
 import { DEFAULT_SETTINGS, PROVIDERS, type Settings } from "@/lib/providers";
 import {
   CARD_STYLES,
@@ -506,6 +507,15 @@ export default function Home() {
       }`
     : "Reading your material and writing cards…";
 
+  // Pinned to the corner of the viewport, so it is in the same place whether you
+  // are looking at the upload panel or a deck.
+  const themeToggle = (
+    <ThemeToggle
+      theme={settings.theme}
+      onChange={(theme) => updateSettings({ ...settings, theme })}
+    />
+  );
+
   // One control, used from the bar and from the deck list.
   const nameField = (
     <input
@@ -530,6 +540,7 @@ export default function Home() {
     return (
       <>
         <div className="wrap screen">
+          {themeToggle}
           <div className="bar">
             {deck ? (
               <>
@@ -770,6 +781,7 @@ export default function Home() {
 
   return (
     <div className="wrap screen">
+      {themeToggle}
       <div className="masthead">
         <h1>Flashcard Anything</h1>
         <p>Slides, PDFs, chapters, notes, screenshots — in, flashcards out.</p>

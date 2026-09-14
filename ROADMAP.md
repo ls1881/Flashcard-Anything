@@ -103,7 +103,7 @@ measuring the result — A4 pages come out 8.26 × 11.69in, and an index card is
 
 | Item | What happened |
 | --- | --- |
-| ~~OCR for scanned PDFs~~ | A PDF with no text layer is rasterised (`unpdf` + `@napi-rs/canvas`) and read by the vision model the app already supports, rather than adding a second OCR engine. Verified on a PDF with a zero-length text layer. |
+| ~~OCR for scanned PDFs~~ | A PDF with no usable text layer is rasterised (`unpdf` + `@napi-rs/canvas`) and read by tesseract, falling back to the vision model. See "OCR, reconsidered" below — the first version of this was wrong twice over. |
 | ~~YouTube transcripts~~ | A YouTube link fetches the video's captions instead of the page. English is requested explicitly — left to itself the library returns whichever track is listed first, which on a popular talk is often a translation. |
 | ~~Multiple files into one deck~~ | Several files are extracted, headed with their filenames and merged before chunking. Images and scans still go one at a time, since each needs its own vision pass. |
 | ~~URL input~~ | A pasted link is fetched and stripped to text. Only public http(s): a server that fetches any address its client names is a way into whatever else that server can reach. |
@@ -133,6 +133,45 @@ is verified against its source exactly as a definition deck is.
 - ~~**Resume an interrupted generation**~~ — sections are cached individually, so a run that
   died on section nine only pays for section nine. No "where was I" bookkeeping: the key is
   the section's own text, so an edited document reruns only what changed.
+
+### OCR, reconsidered — built
+
+This was first built on the argument that a second OCR engine wasn't worth it: rasterise the
+pages, hand them to the vision model the app already supports, done. That was wrong twice
+over, and both halves showed up as the same report — "I uploaded a PDF and got *couldn't
+read any text*".
+
+The first half was the argument. It quietly assumed the configured model could see. The
+default is `qwen3:8b`, a text-only model, so every page of every scan came back empty and the
+app told the reader to go install a vision model — which is a strange thing to demand for a
+photocopy, when tesseract reads a page of printed body text better and about a hundred times
+faster than a small local vision model does. Tesseract is now tried first, on the same terms
+whisper is: looked up on PATH, not bundled, absence reported as instructions. The vision model
+stays as the fallback, because tesseract is poor at handwriting, whiteboards, and anything not
+laid out like a page.
+
+The second half was the detection. "Is this a scan?" was asked as "is the text layer empty?",
+and a scan's text layer is usually not quite empty — a scanner stamps a page number, a library
+stamps a copyright line, a cover page is often the one page that was ever digital. Those few
+characters were enough to call the file a document, skip reading the pages, and then fail at
+the far end with nothing left to show. It is now judged per page: a real page of prose runs to
+hundreds of characters, so anything averaging less than a short line is furniture and the pages
+get read. A thin layer is kept as a floor rather than thrown away, so a short real document is
+never worse off than before.
+
+A related case, fixed with it: a text layer of nothing but control bytes from a broken glyph
+map. The bytes were stripped *after* the scan test rather than before it, so the file looked
+like a document at the moment the decision was made and was empty two steps later.
+
+`test/ocr.test.mjs` covers all of it against PDFs built the way a scanner builds one — a page
+rendered to pixels and wrapped with no text layer behind it — so nothing there can pass by
+accidentally reading text a real scan wouldn't have.
+
+### The theme toggle moved — built
+
+Light and dark lived in the panel behind **Change**, which is where you go to type an API key,
+not where anyone looks to turn the lights off. It is now a sun/moon button in the top right,
+fixed to the viewport so it is in the same corner on the upload screen and on a deck.
 
 ## Not planned
 

@@ -6,9 +6,9 @@ Convert slideshows, PDFs, textbook chapters, notes, and images into flashcards, 
 
 - **Frontend/Backend:** Next.js (App Router, TypeScript) — one codebase, API routes double as the backend, deploys straight to Vercel.
 - **Generation:** the user picks a provider in the app — **Ollama** (default; local, free, no key), **Anthropic**, **OpenAI**, **OpenRouter**, **Google**, **Groq**, **DeepSeek**, **Mistral**, **Together**, or a **Custom** OpenAI-compatible URL. Providers declare an `ApiStyle`, and only three exist: `openai` (nearly everything), `anthropic` (Messages API with a tool call), and `ollama` (its native API). Adding a provider is a preset, not new client code. Structured output is requested as a JSON schema, falling back to `json_object` and then to tolerant parsing, since servers vary in what they support. Cloud keys live in browser storage or `.env.local` — never in the repo.
-- **Theme:** light or dark, chosen explicitly — there is no "follow the system" option, so `data-theme` is always present and the palette never depends on an OS setting. Tokens are defined for light on `:root` and overridden under `[data-theme="dark"]`. Dark is a dimmed charcoal rather than black, which reads better over long sessions; every pairing clears WCAG AA (body text at 13.7:1). A pre-paint script in the layout applies the stored choice so there's no flash. Print always renders on white.
+- **Theme:** light or dark, chosen explicitly — there is no "follow the system" option, so `data-theme` is always present and the palette never depends on an OS setting. Tokens are defined for light on `:root` and overridden under `[data-theme="dark"]`. Dark is a dimmed charcoal rather than black, which reads better over long sessions; every pairing clears WCAG AA (body text at 13.7:1). A pre-paint script in the layout applies the stored choice so there's no flash. The control is a sun/moon button fixed to the top right of the viewport rather than a row in the settings panel — it belongs where you look for it, not behind "Change model" next to the API key field. Print always renders on white.
 - **Export:** an Anki `.apkg` for studying, and a versioned JSON document (`version`, `generatedAt`, `source`, `scope`, `model`, `cards`) so other tools get a stable contract. The API returns the same card shape.
-- **Text extraction:** done locally, because a local text model can't read binaries — `unpdf` for PDFs, OOXML unpacking for `.pptx` (slides + speaker notes) and `.docx`, plus EPUB, RTF and HTML. Format is detected from the bytes, not the extension. Images are transcribed by a vision model first, then run through the same grounded pipeline as any document.
+- **Text extraction:** done locally, because a local text model can't read binaries — `unpdf` for PDFs, OOXML unpacking for `.pptx` (slides + speaker notes) and `.docx`, plus EPUB, RTF and HTML. Format is detected from the bytes, not the extension. Scans and images are transcribed first — by `tesseract` where it is installed, by a vision model otherwise — then run through the same grounded pipeline as any document.
 - **Chunking:** required here in a way it wasn't with a hosted frontier model — local context windows are small, so material is split on paragraph boundaries, generated section by section, and merged with duplicate terms dropped.
 - **Storage:** decks live in the browser's IndexedDB — no server, no setup, and nothing to deploy. It holds megabyte decks that would blow past the ~5MB `localStorage` string quota. A server-side database (SQLite via Prisma, swappable to Postgres) only earns its complexity once decks need to sync across devices, which needs auth first.
 - **File storage:** local disk for MVP; S3/Cloudflare R2 later if hosting uploads long-term.
@@ -197,10 +197,20 @@ Everything becomes the same text in the end; only the way in differs.
   notice. Auto-captions have no sentence breaks, so the stream is re-wrapped into blocks the
   paragraph chunker can actually split on.
 - **A scanned PDF.** No text layer used to be a hard refusal, and photocopied readers are
-  exactly what students have. The pages are now rasterised (`unpdf` with `@napi-rs/canvas`)
-  and read by the vision model the app already supports — rather than adding `tesseract.js`
-  as a second OCR engine beside a vision model that is already installed and already tested.
-  Capped at 12 pages, because a scanned page is a large image and a local model will crawl.
+  exactly what students have. The pages are rasterised (`unpdf` with `@napi-rs/canvas`) and
+  read by `tesseract`, falling back to a vision model when OCR is missing or comes back with
+  nothing. This reverses the original call, which was to skip a second OCR engine and use the
+  vision model the app already had: that assumed the configured model could see, and the
+  default `qwen3:8b` cannot, so every scan failed with "couldn't read any text". Tesseract is
+  looked up rather than bundled, the same bargain whisper asks for. Capped at 12 pages,
+  because a scanned page is a large image and a local model will crawl.
+- **Deciding a PDF *is* a scan.** Asked per page, not per document. "Is the text layer empty?"
+  is the wrong question — a scanner stamps a page number, a library stamps a copyright line —
+  and those few characters were enough to skip reading the pages and fail later with nothing
+  to show. A real page of prose runs to hundreds of characters, so a layer averaging less than
+  a short line is furniture; it is kept as a floor rather than discarded, so a genuinely short
+  document is never worse off. Control bytes are stripped before the test rather than after
+  it, since a broken glyph map otherwise looks like text at the moment the decision is made.
 - **A recording.** `whisper-cli` locally, with `ffmpeg` to convert to the 16kHz mono WAV it
   insists on. Both are looked up rather than bundled — the same bargain Ollama asks for — and
   a missing one is reported as the command to install it. `WHISPER_MODEL` points at the model

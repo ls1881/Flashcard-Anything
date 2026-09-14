@@ -6,7 +6,6 @@ import {
   PROVIDER_LIST,
   type ProviderId,
   type Settings,
-  type ThemeChoice,
 } from "@/lib/providers";
 
 export function modelFor(settings: Settings, provider = settings.provider): string {
@@ -20,11 +19,6 @@ export function keyFor(settings: Settings, provider = settings.provider): string
 export function baseUrlFor(settings: Settings, provider = settings.provider): string {
   return settings.baseUrls[provider]?.trim() || "";
 }
-
-const THEMES: { id: ThemeChoice; label: string }[] = [
-  { id: "light", label: "Light" },
-  { id: "dark", label: "Dark" },
-];
 
 export default function SettingsPanel({
   settings,
@@ -156,21 +150,6 @@ export default function SettingsPanel({
           <code>.env.local</code> key instead and leave this blank.
         </p>
       )}
-
-      <div className="field">
-        <span>Appearance</span>
-        <div className="seg">
-          {THEMES.map((t) => (
-            <button
-              key={t.id}
-              className={settings.theme === t.id ? "on" : ""}
-              onClick={() => onChange({ ...settings, theme: t.id })}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
 
       <button className="ghost done" onClick={onClose}>
         Done

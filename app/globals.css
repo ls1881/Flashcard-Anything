@@ -46,6 +46,38 @@ body {
 
 /* ---------- screen ---------- */
 
+/* Fixed to the viewport rather than placed in a header: there are two screens
+   here, an upload panel and a deck, and the toggle has to be in the same corner
+   on both without either layout making room for it. */
+.theme-toggle {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  box-shadow: 0 1px 3px var(--shadow);
+}
+
+.theme-toggle:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+
 .wrap {
   max-width: 940px;
   margin: 0 auto;
@@ -809,6 +841,10 @@ select {
 /* The real @page rule is emitted by PrintSheets, which knows the chosen paper. */
 
 @media print {
+  .theme-toggle {
+    display: none;
+  }
+
   .screen {
     display: none !important;
   }

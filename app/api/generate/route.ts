@@ -11,6 +11,7 @@ import {
   repeatedLines,
   type Source,
 } from "@/lib/extract";
+import { OCR_INSTALL_HINT } from "@/lib/ocr";
 import { completeText, resolveKey, type LlmConfig } from "@/lib/llm";
 import { PROVIDERS, isProviderId } from "@/lib/providers";
 import { pipelineFor, type Progress } from "@/lib/pipelines";
@@ -225,7 +226,10 @@ export async function POST(req: Request) {
           if (!pages.length) {
             send({
               type: "error",
-              error: `"${material.name}" is a scan and "${cfg.model}" couldn't read any text on its pages. Use a vision model such as qwen2.5vl:7b.`,
+              error:
+                `"${material.name}" is a scan, so it has to be read as pictures — and "${cfg.model}" ` +
+                `read nothing on any of its pages. Either ${OCR_INSTALL_HINT}, which needs no model at all, ` +
+                `or switch to a vision model such as qwen2.5vl:7b.`,
             });
             return;
           }
@@ -243,7 +247,10 @@ export async function POST(req: Request) {
           if (transcript.length < 20) {
             send({
               type: "error",
-              error: `"${cfg.model}" couldn't read any text in that image. Use a vision model such as qwen2.5vl:7b, or upload the document itself.`,
+              error:
+                `"${cfg.model}" couldn't read any text in that image. Either ${OCR_INSTALL_HINT}, ` +
+                `which needs no model at all, switch to a vision model such as qwen2.5vl:7b, ` +
+                `or upload the document itself.`,
             });
             // The `finally` closes the stream; doing it here as well throws and
             // drops the connection, so the reader sees a network error rather
