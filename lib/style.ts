@@ -1,16 +1,26 @@
 import type { Card } from "./duplex";
 
 /**
- * What shape of card to write, and how hard.
+ * What shape of card to write, how hard, and how many.
  *
- * Both are prompt-level choices — the pipeline, the evidence check and the
- * deduper are unchanged by either, so a question deck is verified against its
- * source exactly like a definition deck. Kept in their own module because the
- * page and the deck store need them, and `lib/pipelines.ts` reaches for the
+ * All three are prompt-level choices — the pipeline, the evidence check and the
+ * deduper are unchanged by any of them, so a question deck is verified against
+ * its source exactly like a definition deck. Kept in their own module because
+ * the page and the deck store need them, and `lib/pipelines.ts` reaches for the
  * model, which must not reach a client bundle.
  */
 export type CardStyle = "definition" | "question";
 export type Difficulty = "intro" | "exam";
+
+/**
+ * How much of the material to turn into cards.
+ *
+ * Selectiveness, not a cap. A cap alone would cut the deck off partway through
+ * the document — the sections are written in order, so stopping at twenty cards
+ * means twenty cards about chapter one and nothing about chapter four. The
+ * choice has to reach the writer, so that each section contributes its share.
+ */
+export type Density = "key" | "normal" | "max";
 
 export const CARD_STYLES: { id: CardStyle; label: string; hint: string }[] = [
   { id: "definition", label: "Definitions", hint: "A term on the front, what it means on the back." },
@@ -21,6 +31,16 @@ export const DIFFICULTIES: { id: Difficulty; label: string; hint: string }[] = [
   { id: "intro", label: "Introductory", hint: "Core vocabulary and the central ideas." },
   { id: "exam", label: "Exam level", hint: "Mechanisms, conditions, distinctions and figures." },
 ];
+
+export const DENSITIES: { id: Density; label: string; hint: string }[] = [
+  { id: "key", label: "Fewest", hint: "Only what you couldn't skip — a short deck of the central ideas." },
+  { id: "normal", label: "Normal", hint: "One card per idea worth memorizing." },
+  { id: "max", label: "Most", hint: "Everything the material supports, with repeats still removed." },
+];
+
+export function isDensity(v: string): v is Density {
+  return v === "key" || v === "normal" || v === "max";
+}
 
 export function isCardStyle(v: string): v is CardStyle {
   return v === "definition" || v === "question";

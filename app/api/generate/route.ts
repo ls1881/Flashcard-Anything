@@ -14,8 +14,15 @@ import {
 import { OCR_INSTALL_HINT } from "@/lib/ocr";
 import { completeText, resolveKey, type LlmConfig } from "@/lib/llm";
 import { PROVIDERS, isProviderId } from "@/lib/providers";
-import { pipelineFor, type Progress } from "@/lib/pipelines";
-import { isCardStyle, isDifficulty, type CardStyle, type Difficulty } from "@/lib/style";
+import { cardCapFor, pipelineFor, type Progress } from "@/lib/pipelines";
+import {
+  isCardStyle,
+  isDensity,
+  isDifficulty,
+  type CardStyle,
+  type Density,
+  type Difficulty,
+} from "@/lib/style";
 import { cacheKey, chunkKey, getCached, getChunk, putCached, putChunk } from "@/lib/cache";
 import { concurrencyFor } from "@/lib/pipelines";
 import { buildOutline, findScope, tableOfContents } from "@/lib/outline";
@@ -26,7 +33,6 @@ type TextSource = Extract<Source, { kind: "text" }>;
 export const runtime = "nodejs";
 export const maxDuration = 800;
 
-const MAX_CARDS = 60;
 const MAX_CHUNKS = 16;
 
 const TRANSCRIBE_SYSTEM = `You transcribe images. Reply with the transcription only — no preamble, no commentary.
@@ -65,6 +71,7 @@ export async function POST(req: Request) {
   let chunkOverride = 0;
   let style: CardStyle = "definition";
   let difficulty: Difficulty = "intro";
+  let density: Density = "normal";
 
   try {
     const form = await req.formData();
@@ -76,6 +83,8 @@ export async function POST(req: Request) {
     if (isCardStyle(wantedStyle)) style = wantedStyle;
     const wantedDifficulty = String(form.get("difficulty") ?? "");
     if (isDifficulty(wantedDifficulty)) difficulty = wantedDifficulty;
+    const wantedDensity = String(form.get("density") ?? "");
+    if (isDensity(wantedDensity)) density = wantedDensity;
     // Smaller chunks suit a small model, and let the benchmark reproduce the
     // cross-section context loss that long documents cause.
     const requested = Number(form.get("chunkChars"));
@@ -287,6 +296,7 @@ export async function POST(req: Request) {
           pipeline: pipelineFor(pipelineId).id,
           style,
           difficulty,
+          density,
           chunkChars: chunkOverride || PROVIDERS[cfg.provider].chunkChars,
         });
         const cached = getCached(key);
@@ -316,9 +326,10 @@ export async function POST(req: Request) {
           chunks,
           context,
           glossary,
-          maxCards: MAX_CARDS,
+          maxCards: cardCapFor(density, chunks.length),
           style,
           difficulty,
+          density,
           concurrency: concurrencyFor(cfg.provider),
           // Finishing an interrupted run rather than starting it again.
           sectionCache: {

@@ -84,8 +84,25 @@ And a **Level**: **Introductory** goes for the core vocabulary and the headline 
 **Exam level** goes for mechanisms, conditions, exceptions, distinctions between things that
 are easily confused, and exact figures.
 
-Either way, every card still has to quote your source to survive — the accuracy checks don't
-change with the style.
+And **How many**:
+
+| | What you get |
+| --- | --- |
+| **Fewest** | Only what you couldn't skip — the ideas the material is built around |
+| **Normal** | One card per idea worth memorizing |
+| **Most** | Everything the material supports, with repeats still removed |
+
+It changes how selective the writer is, section by section, rather than cutting a long deck
+short — so **Fewest** still covers the whole document, just sparsely. A ceiling is a ceiling
+and not a quota: thin material gives a short deck at any setting, and **Most** will stop
+early rather than pad. On one page of biology notes against a local `qwen3:8b` the three
+settings gave 3, 8 and 17 cards.
+
+**Most** asks a lot more of the model and takes correspondingly longer — on a local model,
+minutes where **Normal** takes seconds. On a hosted provider the difference is small.
+
+Whichever you pick, every card still has to quote your source to survive — the accuracy
+checks don't change with the style, the level, or how many you asked for.
 
 ## Where a card came from
 

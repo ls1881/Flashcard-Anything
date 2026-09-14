@@ -7,8 +7,10 @@ import ThemeToggle from "@/components/ThemeToggle";
 import { DEFAULT_SETTINGS, PROVIDERS, type Settings } from "@/lib/providers";
 import {
   CARD_STYLES,
+  DENSITIES,
   DIFFICULTIES,
   isCardStyle,
+  isDensity,
   isDifficulty,
   type CardStyle,
 } from "@/lib/style";
@@ -97,6 +99,7 @@ export default function Home() {
         if (stored.flip !== "long" && stored.flip !== "short") delete stored.flip;
         if (!isCardStyle(String(stored.style))) delete stored.style;
         if (!isDifficulty(String(stored.difficulty))) delete stored.difficulty;
+        if (!isDensity(String(stored.density))) delete stored.density;
         setSettings({ ...DEFAULT_SETTINGS, ...stored });
       }
     } catch {
@@ -185,6 +188,7 @@ export default function Home() {
       if (scope.trim()) body.append("scope", scope.trim());
       body.append("style", settings.style);
       body.append("difficulty", settings.difficulty);
+      body.append("density", settings.density);
       body.append("provider", settings.provider);
       body.append("model", modelFor(settings));
       body.append("apiKey", keyFor(settings));
@@ -923,10 +927,29 @@ export default function Home() {
                   ))}
                 </select>
               </label>
+              <label className="edge">
+                How many
+                <select
+                  value={settings.density}
+                  onChange={(e) =>
+                    updateSettings({
+                      ...settings,
+                      density: e.target.value as typeof settings.density,
+                    })
+                  }
+                >
+                  {DENSITIES.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <p className="style-hint">
               {CARD_STYLES.find((s) => s.id === settings.style)?.hint}{" "}
-              {DIFFICULTIES.find((d) => d.id === settings.difficulty)?.hint}
+              {DIFFICULTIES.find((d) => d.id === settings.difficulty)?.hint}{" "}
+              {DENSITIES.find((d) => d.id === settings.density)?.hint}
             </p>
 
             <button className="primary" onClick={generate} disabled={!ready}>

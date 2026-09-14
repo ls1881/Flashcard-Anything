@@ -22,6 +22,7 @@ export type CacheKeyInput = {
   pipeline: string;
   style: string;
   difficulty: string;
+  density: string;
   chunkChars: number;
 };
 
@@ -49,6 +50,7 @@ export function cacheKey(input: CacheKeyInput): string {
     input.pipeline,
     input.style,
     input.difficulty,
+    input.density,
     String(input.chunkChars),
   ].join(" ");
 }

@@ -167,6 +167,52 @@ like a document at the moment the decision was made and was empty two steps late
 rendered to pixels and wrapped with no text layer behind it — so nothing there can pass by
 accidentally reading text a real scan wouldn't have.
 
+### How many cards — built
+
+**Fewest / Normal / Most**, beside **Cards as** and **Level**. Not a cap: a cap can only
+truncate, and sections are written in document order, so a deck cut off at twenty is twenty
+cards about chapter one and silence about chapter four. It sets how selective the writer is,
+per section, so **Fewest** still covers the whole document — just sparsely.
+
+The instructive part was that adjectives did not work. "Be severe. Most candidate terms
+should be rejected" got thirty cards out of `qwen3:8b` from a single page, and the global cap
+did the truncating after all. The same prompt with the ceiling stated as a figure —
+`Write at most 3 cards` — got three. It is enforced in `overChunks` as well, so a model that
+ignores the number still can't spend the whole deck on section one, and the deck-wide cap is
+now derived from it (sections × per-section ceiling) rather than the fixed 60 that used to cut
+a long textbook off halfway.
+
+**Most** needed its own rule against padding. Told to be exhaustive it produced "Mitochondrial
+structure", "Mitochondrial function", "Mitochondrial role" and "Mitochondrial process" — four
+cards the deduper passed, because the terms really are different, answered by one sentence.
+The prompt now names that shape and says the number is a ceiling, not a target; it returns 17
+of an allowed 20 on the same page.
+
+Measured on one page of biology notes against a local `qwen3:8b`: 3 cards, 8 cards, 17 cards.
+
+### Ollama's structured output is the real cost of "Most"
+
+Found while measuring the above, and worth writing down because it is not what it looks like.
+**Most** took ~17 minutes for a section where **Normal** took 20 seconds — far more than twice
+the work for twice the cards. It is not the model and not the output-token ceiling. The same
+material, the same model and the same 20-card instruction, sent straight to `/api/chat`:
+
+| | Wall clock | Tokens | Rate |
+| --- | --- | --- | --- |
+| no `format` | 36s | 1600 | 44 tok/s |
+| `format: <the card schema>` | 18m 19s | 2113 | 1.9 tok/s |
+
+Both finished cleanly on `stop` — nothing was truncated, and the constrained run returned a
+full 20 cards. Ollama's schema-constrained decoding is simply 23× slower per token here, and
+since the penalty is per token it compounds with exactly the thing **Most** asks for.
+
+That is pre-existing — every density pays it, and **Most** only makes it visible. Worth
+investigating separately: Ollama already falls back through `format: "json"` and then to the
+tolerant parser in `lib/llm.ts`, so preferring the looser mode for this provider would likely
+recover most of the 23×. It trades a guarantee for speed, though, and the drop rate should be
+measured before it is chosen rather than assumed small. Hosted providers are unaffected —
+they do constrained decoding server-side without this penalty.
+
 ### The theme toggle moved — built
 
 Light and dark lived in the panel behind **Change**, which is where you go to type an API key,

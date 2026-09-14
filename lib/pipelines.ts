@@ -1,7 +1,7 @@
 import { completeJson, type JsonSchema, type LlmConfig, type Part } from "./llm";
 import { reviewCards } from "./verify";
 import { addCards, newDeck, type Deck } from "./dedupe";
-import { shapeCard, type CardStyle, type Difficulty } from "./style";
+import { shapeCard, type CardStyle, type Density, type Difficulty } from "./style";
 import type { Card } from "./duplex";
 
 /**
@@ -26,9 +26,10 @@ export type PipelineCtx = {
   /** "ACR = Expansion" pairs from the document, used to fold acronym duplicates. */
   glossary: string[];
   maxCards: number;
-  /** Card shape and difficulty. Both default to what the app shipped with. */
+  /** Card shape, difficulty and how many. All default to what the app shipped with. */
   style?: CardStyle;
   difficulty?: Difficulty;
+  density?: Density;
   /** Sections in flight at once. 1 for a local model, which serializes anyway. */
   concurrency?: number;
   /**
@@ -87,6 +88,47 @@ const DIFFICULTY_RULES: Record<Difficulty, string> = {
   exam: `Aim at someone who has already read this and is being examined on it. Favour what is actually tested: mechanisms and the order of steps, conditions and exceptions, the distinctions between things that are easily confused, exact figures and their units, and the reasoning behind a result rather than the result alone. Skip the material a first reading already makes obvious.`,
 };
 
+/**
+ * How many cards a section may yield, and how selective to be about them.
+ *
+ * A number, not an adjective. Asked with adjectives alone — "be severe", "be
+ * exhaustive" — a local model ignores the instruction and writes as many cards
+ * as it feels like, and the only thing left holding the deck down is the global
+ * cap, which truncates: sections are written in order, so a deck cut off at
+ * thirty is thirty cards about chapter one and nothing about chapter four.
+ * Giving the writer a per-section ceiling makes the choice actually bind, and
+ * makes every section contribute its share.
+ *
+ * Per section rather than per deck because a section is the only unit the
+ * writer can see — it is shown one chunk at a time and has no idea how long the
+ * document is.
+ */
+const CARDS_PER_SECTION: Record<Density, number> = { key: 3, normal: 8, max: 20 };
+
+/**
+ * The whole deck's ceiling, derived from the per-section one rather than fixed.
+ *
+ * A fixed number can only truncate. Sixty cards was the old limit whatever the
+ * document was, so a sixteen-section textbook stopped contributing somewhere in
+ * section eight and the last half of the book was simply missing from the deck.
+ * Scaling with the document means the cap is reached only by a document that
+ * genuinely has that much in it, and `MAX_CHUNKS` in the route already bounds
+ * how many sections there can be.
+ */
+export function cardCapFor(density: Density, sections: number): number {
+  return CARDS_PER_SECTION[density] * Math.max(1, sections);
+}
+
+const DENSITY_RULES: Record<Density, string> = {
+  key: `HOW MANY: be severe. Make a card only for what someone could not skip and still follow this material — the few ideas the section is actually built around. Most candidate terms should be rejected: supporting detail, examples, asides, and anything the section only mentions in passing do not get cards.`,
+
+  normal: `HOW MANY: one card per distinct idea worth memorizing. Leave out supporting detail that only exists to explain something you have already made a card for.`,
+
+  max: `HOW MANY: be thorough. Every distinct idea, term, mechanism, figure, condition, exception and distinction the section actually states is worth a card, including supporting detail a shorter deck would leave out.
+
+Thorough is not repetitive, and the limit you are given is a ceiling, not a target. Stop when you run out of distinct ideas, however few that is. Never split one idea across several cards, and never write two cards that would be answered by the same sentence of the source — "X structure", "X function", "X role" and "X process" are one card, not four. A short honest deck is better than a padded one.`,
+};
+
 const WRITER_RULES = `Rules for every card:
 - "term" is only the thing being learned: a term, name, concept, formula name, date, or event. 1 to 5 words. Never a sentence, never a question, no trailing punctuation, and never any part of the definition.
 - "definition" carries all the substance: 1 to 3 sentences, under 45 words, understandable without seeing the term, and faithful to how this document uses it.
@@ -109,8 +151,12 @@ ${GROUNDING_RULE}
 
 ${WRITER_RULES}`;
 
-/** The writer prompt for a chosen card shape and difficulty. */
-export function writerSystem(style: CardStyle, difficulty: Difficulty): string {
+/** The writer prompt for a chosen card shape, difficulty and density. */
+export function writerSystem(
+  style: CardStyle,
+  difficulty: Difficulty,
+  density: Density = "normal"
+): string {
   return `You write study flashcards from a source document. You reply with JSON only — no commentary, no markdown fences.
 
 Reply with exactly this shape:
@@ -121,13 +167,19 @@ ${GROUNDING_RULE}
 ${STYLE_RULES[style]}
 
 WHO THIS IS FOR:
-${DIFFICULTY_RULES[difficulty]}`;
+${DIFFICULTY_RULES[difficulty]}
+
+${DENSITY_RULES[density]}`;
 }
 
-const sectionPrompt = (part: number, total: number) =>
-  total > 1
-    ? `Make flashcards from section ${part} of ${total} of the material above. Cover only what this section contains.`
-    : `Make flashcards from the material above.`;
+/** Exported for `test/style.test.mjs`, which checks the ceiling actually reaches the model. */
+export const sectionPrompt = (part: number, total: number, budget: number) => {
+  const where =
+    total > 1
+      ? `Make flashcards from section ${part} of ${total} of the material above. Cover only what this section contains.`
+      : `Make flashcards from the material above.`;
+  return `${where}\n\nWrite at most ${budget} cards. This is a ceiling, not a quota — fewer is correct when the material holds fewer distinct ideas.`;
+};
 
 function partsFor(chunk: string, context: string, instruction: string): Part[] {
   return [
@@ -257,7 +309,11 @@ export async function overChunks(
     fixed += result.fixed;
     // Counted separately from `dropped`: a repeat isn't a grounding failure.
     const before = deck.cards.length;
-    duplicates += mergeInto(deck, result.cards, ctx.maxCards);
+    // The section's own ceiling, enforced rather than requested. A model that
+    // writes twenty cards for a "fewest" deck would otherwise spend the whole
+    // global cap on section one, and the rest of the document would never
+    // reach the deck at all.
+    duplicates += mergeInto(deck, result.cards.slice(0, budgetFor(ctx)), ctx.maxCards);
     // Hand over what was actually kept, not what the model returned. The page
     // appends these verbatim, so a rejected card must never reach it.
     if (deck.cards.length > before) ctx.onCards?.(deck.cards.slice(before));
@@ -288,15 +344,20 @@ export async function overChunks(
   return { cards: deck.cards, dropped, fixed, duplicates };
 }
 
+/** The per-section ceiling for this run's density. */
+function budgetFor(ctx: PipelineCtx): number {
+  return CARDS_PER_SECTION[ctx.density ?? "normal"];
+}
+
 function systemFor(ctx: PipelineCtx): string {
-  return writerSystem(ctx.style ?? "definition", ctx.difficulty ?? "intro");
+  return writerSystem(ctx.style ?? "definition", ctx.difficulty ?? "intro", ctx.density ?? "normal");
 }
 
 async function write(ctx: PipelineCtx, chunk: string, index: number): Promise<unknown> {
   return completeJson(
     ctx.cfg,
     systemFor(ctx),
-    partsFor(chunk, ctx.context, sectionPrompt(index + 1, ctx.chunks.length))
+    partsFor(chunk, ctx.context, sectionPrompt(index + 1, ctx.chunks.length, budgetFor(ctx)))
   );
 }
 
@@ -368,6 +429,9 @@ const reviewOnly: Pipeline = {
     }),
 };
 
+/** How many concepts the naming pass may list from one section. */
+const TERMS_PER_SECTION: Record<Density, number> = { key: 8, normal: 25, max: 60 };
+
 const TERMS_SCHEMA: JsonSchema = {
   type: "object",
   properties: {
@@ -412,7 +476,10 @@ const outlineFirst: Pipeline = {
       const terms = (((listed as { terms?: unknown })?.terms ?? []) as unknown[])
         .map((t) => String(t ?? "").replace(/\s+/g, " ").trim())
         .filter(Boolean)
-        .slice(0, 25);
+        // This pipeline names concepts before defining them, so the list is the
+        // real ceiling on the deck — it has to move with the density or "Most"
+        // would be capped here rather than by the choice.
+        .slice(0, TERMS_PER_SECTION[ctx.density ?? "normal"]);
       if (!terms.length) return { cards: [], dropped: 0, fixed: 0 };
 
       ctx.onProgress({ phase: "checking", done: i, total: ctx.chunks.length, cards: soFar });
@@ -437,7 +504,7 @@ const ensemble: Pipeline = {
   run: (ctx) =>
     overChunks(ctx, async (chunk, shown, i, soFar) => {
       ctx.onProgress({ phase: "reading", done: i, total: ctx.chunks.length, cards: soFar });
-      const instruction = sectionPrompt(i + 1, ctx.chunks.length);
+      const instruction = sectionPrompt(i + 1, ctx.chunks.length, budgetFor(ctx));
       // Sequential on purpose. A local server runs one request per model at a time, so
       // issuing both at once buys no parallelism and makes them contend: 1081s per case
       // concurrently against 439s sequentially. Even sequential this is 18x `grounded`,

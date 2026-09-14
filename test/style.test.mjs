@@ -2,7 +2,8 @@
 // Run: npm test
 import { shapeCard, isCardStyle, isDifficulty, CARD_STYLES, DIFFICULTIES }
   from "../lib/style.ts";
-import { harvest, writerSystem, concurrencyFor } from "../lib/pipelines.ts";
+import { harvest, writerSystem, sectionPrompt, cardCapFor, concurrencyFor }
+  from "../lib/pipelines.ts";
 import { passageFor, locateEvidence, sourceWindow } from "../lib/source.ts";
 import { cacheKey, getCached, putCached, clearCache, cacheSize,
          chunkKey, getChunk, putChunk } from "../lib/cache.ts";
@@ -68,6 +69,51 @@ check("introductory level does not", defIntro.includes("conditions and exception
 check("every prompt still demands JSON only",
   [defIntro, questionExam].every((s) => s.includes("JSON only")), true);
 
+console.log("\nthe writer is told how selective to be:");
+// Adjectives alone did not bind — a local model read "be severe", wrote thirty
+// cards anyway, and the global cap truncated the deck instead of shortening it.
+// The choice now reaches the model as a number, and is enforced besides.
+const fewest = writerSystem("definition", "intro", "key");
+const most = writerSystem("definition", "intro", "max");
+const normal = writerSystem("definition", "intro", "normal");
+check("fewest asks the writer to reject most candidates",
+  fewest.includes("Most candidate terms should be rejected"), true);
+check("most asks for thorough coverage", most.includes("be thorough"), true);
+check("and names the padding it must not do", most.includes("one card, not four"), true);
+check("and says the limit is a ceiling", most.includes("ceiling, not a target"), true);
+check("normal is neither", [normal.includes("be thorough"),
+  normal.includes("Most candidate terms should be rejected")], [false, false]);
+check("every density is a different prompt",
+  new Set([fewest, normal, most]).size, 3);
+check("omitting the density gives the normal one",
+  writerSystem("definition", "intro"), normal);
+check("the grounding rule survives every density",
+  [fewest, normal, most].every((s) => s.includes("THE GROUNDING RULE")), true);
+check("so does the style rule",
+  [fewest, normal, most].every((s) => s.includes("1 to 5 words")), true);
+
+console.log("\nthe ceiling reaches the model as a number, not an adjective:");
+check("the section instruction carries it", sectionPrompt(1, 1, 3).includes("at most 3 cards"), true);
+check("and says it is not a quota", sectionPrompt(1, 1, 3).includes("not a quota"), true);
+check("section numbering survives", sectionPrompt(2, 5, 8).includes("section 2 of 5"), true);
+
+console.log("\nthe deck cap scales with the document instead of truncating it:");
+// The old cap was 60 whatever the document was, so a sixteen-section textbook
+// stopped contributing partway through and the last chapters never appeared.
+check("one section, fewest", cardCapFor("key", 1), 3);
+check("one section, normal", cardCapFor("normal", 1), 8);
+check("one section, most", cardCapFor("max", 1), 20);
+check("sixteen sections, normal", cardCapFor("normal", 16), 128);
+check("more sections always allow more cards",
+  cardCapFor("normal", 16) > cardCapFor("normal", 8), true);
+check("each density allows more than the one below it",
+  cardCapFor("key", 8) < cardCapFor("normal", 8) && cardCapFor("normal", 8) < cardCapFor("max", 8),
+  true);
+check("a zero-section run still allows a card", cardCapFor("normal", 0), 8);
+
+check("density and level are independent",
+  writerSystem("question", "exam", "max").includes("conditions and exceptions"), true);
+
 console.log("\nparallelism is chosen by provider, not hoped for:");
 check("ollama stays sequential, because it serializes anyway", concurrencyFor("ollama"), 1);
 check("hosted providers run several sections at once", concurrencyFor("openai") > 1, true);
@@ -112,13 +158,14 @@ check("sourceWindow still works off the same lookup",
 console.log("\nthe cache only hits when nothing that matters changed:");
 clearCache();
 const base = { text: "some document", scope: "", provider: "ollama", model: "qwen3:8b",
-  pipeline: "grounded", style: "definition", difficulty: "intro", chunkChars: 3500 };
+  pipeline: "grounded", style: "definition", difficulty: "intro", density: "normal",
+  chunkChars: 3500 };
 const k = cacheKey(base);
 check("the same inputs give the same key", cacheKey(base), k);
 for (const [field, value] of [
   ["text", "a different document"], ["scope", "chapter 3"], ["provider", "openai"],
   ["model", "gpt-5"], ["pipeline", "ensemble"], ["style", "question"],
-  ["difficulty", "exam"], ["chunkChars", 4000],
+  ["difficulty", "exam"], ["density", "max"], ["chunkChars", 4000],
 ]) {
   check(`changing ${field} changes the key`, cacheKey({ ...base, [field]: value }) !== k, true);
 }

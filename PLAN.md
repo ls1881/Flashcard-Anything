@@ -124,7 +124,7 @@ the stream errors after cards have landed, the page keeps them, saves them, and 
 stopped early — losing nine finished sections because the tenth timed out would be worse
 than a short deck.
 
-## Card shape and difficulty (built)
+## Card shape, difficulty and how many (built)
 
 Term-and-definition is a poor fit for a number or a process step, and the same material
 suits a first reading and an exam differently. Both are prompt-level choices, in
@@ -134,12 +134,47 @@ suits a first reading and an exam differently. Both are prompt-level choices, in
 - **Questions** — a question the source answers. Held to actually ending in a question mark.
 - **Introductory** against **Exam level** — core vocabulary and headline figures, against
   mechanisms, conditions, exceptions and exact figures.
+- **Fewest / Normal / Most** — how much of the material becomes cards.
 
 Nothing below the prompt changed. The evidence check, the deduper and the card cap treat a
 question deck exactly as a definition deck, so a question card still has to quote its source.
 `shapeCard` holds a card to the shape its style promised: a question that arrived without a
 question mark gets one. Only punctuation is repaired — anything needing the card's meaning
 changed to fit would be making the card up.
+
+### How many cards, and why a cap was the wrong lever
+
+The obvious implementation is a number: cap the deck at twenty for **Fewest**, a hundred and
+fifty for **Most**. It does not work, for two reasons that only show up when you run it.
+
+A cap can only truncate. Sections are written and merged in document order, so a deck cut off
+at twenty is twenty cards about chapter one and nothing at all about chapter four — the
+opposite of what "only the most important ones" should mean, which is a sparse pass over the
+*whole* document. The choice has to reach the writer.
+
+And it has to reach it as a number. Asked with adjectives — "be severe", "make a card only for
+what someone could not skip" — a local `qwen3:8b` wrote thirty cards from a single page of
+biology notes anyway, and the cap did the truncating after all. The same prompt with a
+ceiling stated as a figure, `Write at most 3 cards`, gave three. So the density sets a
+per-section ceiling (3 / 8 / 20), the ceiling goes into the section instruction the writer
+actually reads, and `overChunks` enforces it besides — a model that ignores the number cannot
+spend the whole deck on section one.
+
+The deck cap is then *derived* rather than fixed: sections × the per-section ceiling. The old
+fixed 60 truncated a sixteen-section textbook somewhere in section eight whatever the setting.
+
+"Most" needed a rule against padding specifically. Told to be exhaustive, the model produced
+"Mitochondrial structure", "Mitochondrial function", "Mitochondrial role" and "Mitochondrial
+process" — four cards the deduper let through, because the terms genuinely differ, and the
+same sentence answers all four. The prompt now names that shape and says the number is a
+ceiling rather than a target. On the same page it now returns 17 of its allowed 20, all
+distinct.
+
+Measured on one page of biology notes against a local `qwen3:8b`: 3 cards in 14s, 8 in 20s,
+17–18 in about 17 minutes. That last figure is not the model straining — it is Ollama's
+schema-constrained decoding, which runs at 1.9 tok/s against 44 tok/s for the same request
+with no schema attached. Every density pays that; **Most** just generates enough tokens to
+make it obvious. See ROADMAP.md, "Ollama's structured output is the real cost of Most".
 
 **A fill-in-the-blank style was built and then removed.** It wrote a sentence with one span
 blanked, and exported to Anki's own cloze note type; the machinery worked, and it is in the
@@ -166,7 +201,7 @@ Three separate things, all in service of not making someone wait for work alread
 
 - **A whole run is cached** by content hash (`lib/cache.ts`). The key is the source text plus
   every setting that changes the output — scope, provider, model, pipeline, style,
-  difficulty, chunk size — so a hit cannot be wrong. Measured at 16s → 0s on a repeat. In
+  difficulty, density, chunk size — so a hit cannot be wrong. Measured at 16s → 0s on a repeat. In
   memory, not on disk: losing it to a restart costs one regeneration, where a stale file
   would cost trust in the results.
 - **Sections run in parallel on hosted providers**, four at a time; Ollama stays at one,

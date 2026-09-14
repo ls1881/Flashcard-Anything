@@ -1,5 +1,5 @@
 import type { CardSizeId, FlipEdge, PaperId } from "./duplex";
-import type { CardStyle, Difficulty } from "./style";
+import type { CardStyle, Density, Difficulty } from "./style";
 
 /** How a provider's HTTP API is shaped. Almost everything speaks OpenAI's dialect. */
 export type ApiStyle = "openai" | "anthropic" | "ollama";
@@ -174,6 +174,7 @@ export type Settings = {
   /** What the next deck should be written as. */
   style: CardStyle;
   difficulty: Difficulty;
+  density: Density;
   /** Kept per provider so switching back and forth doesn't wipe a key. */
   keys: Partial<Record<ProviderId, string>>;
   models: Partial<Record<ProviderId, string>>;
@@ -188,6 +189,7 @@ export const DEFAULT_SETTINGS: Settings = {
   flip: "long",
   style: "definition",
   difficulty: "intro",
+  density: "normal",
   keys: {},
   models: {},
   baseUrls: {},
