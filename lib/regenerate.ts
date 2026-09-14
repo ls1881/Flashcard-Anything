@@ -1,6 +1,7 @@
 import { completeJson, type JsonSchema, type LlmConfig, type Part } from "./llm";
 import { definitionTokens, sameMeaning } from "./dedupe";
 import { isGrounded } from "./pipelines";
+import { sourceWindow } from "./source";
 import type { Card } from "./duplex";
 
 /**
@@ -10,64 +11,6 @@ import type { Card } from "./duplex";
  * again — minutes of model time to fix two cards. This is one call against the
  * slice of the source the card came from.
  */
-
-const RADIUS = 1500;
-
-/**
- * Lowercase, with every run of non-alphanumerics collapsed to one space, plus a
- * map back to offsets in the original. Matching has to be done on the
- * normalized form — a model's quote differs from the source in whitespace and
- * punctuation far more often than in words — but the window has to be cut from
- * the original text, so the mapping is what makes both possible.
- */
-function normalizeWithMap(text: string): { norm: string; map: number[] } {
-  let norm = "";
-  const map: number[] = [];
-  let pendingSpace = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i].toLowerCase();
-    if ((ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9")) {
-      if (pendingSpace && norm.length > 0) {
-        norm += " ";
-        map.push(i);
-        pendingSpace = false;
-      }
-      norm += ch;
-      map.push(i);
-    } else {
-      pendingSpace = true;
-    }
-  }
-  return { norm, map };
-}
-
-/**
- * The slice of the source a card came from: a window around its quoted
- * evidence. Sending the whole document back for one card would be slower, and
- * on a long document would push the real passage out of a small context window
- * entirely.
- *
- * Falls back to the opening of the document when the evidence can't be located
- * — a card with no usable quote still deserves an attempt, and the caller
- * checks the result against the source either way.
- */
-export function sourceWindow(text: string, evidence: string, radius = RADIUS): string {
-  if (!text) return "";
-  if (text.length <= radius * 2) return text;
-
-  const needle = normalizeWithMap(evidence).norm;
-  if (needle.length >= 12) {
-    const hay = normalizeWithMap(text);
-    const at = hay.norm.indexOf(needle);
-    if (at !== -1) {
-      const start = hay.map[at];
-      const end = hay.map[Math.min(at + needle.length - 1, hay.map.length - 1)];
-      return text.slice(Math.max(0, start - radius), Math.min(text.length, end + radius));
-    }
-  }
-  return text.slice(0, radius * 2);
-}
 
 const SCHEMA: JsonSchema = {
   type: "object",

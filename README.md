@@ -55,18 +55,63 @@ in `.env.local` and leave the field blank.
 
 ## Using it
 
-1. Drop in a **PDF, .pptx, .docx, .txt/.md/.csv, or an image** — or paste text.
+1. Drop in **one file or several** — PDF, PowerPoint, Word, EPUB, text, an image, a scan, or
+   a recording. Or paste a **link** (a page, or a YouTube lecture). Or paste text.
 2. Optionally say **which part** you want: `chapter 3, section 2`.
-3. Hit **Make flashcards**. Cards appear as each section is written, so you can start
-   reading long before the run finishes. Every card comes out the same shape: a short term
-   on the front (1–5 words), the full definition on the back.
-4. Click any card to flip it, hit **Print** for the paper deck, or **Export Anki** to carry
+3. Choose what kind of cards you want and how hard — see below.
+4. Hit **Make flashcards**. Cards appear as each section is written, so you can start
+   reading long before the run finishes.
+5. Click any card to flip it, hit **Print** for the paper deck, or **Export Anki** to carry
    it into Anki.
-5. Fix anything that came out wrong — see below. The deck saves itself either way; reload
+6. Fix anything that came out wrong — see below. The deck saves itself either way; reload
    the page and it's still there.
+
+Running the same material twice with the same settings is instant — the result is cached, so
+a rerun after a typo in the scope costs nothing. If a run dies partway, the sections that
+finished are kept, and running it again only pays for the ones that didn't.
 
 If a run fails partway, the sections that already finished are kept and saved — you get a
 short deck and a note saying it stopped early, rather than nothing.
+
+## What kind of cards
+
+| Style | Front | Back |
+| --- | --- | --- |
+| **Definitions** | a term, 1–5 words | what it means |
+| **Questions** | a question the source answers | the answer |
+| **Fill in the blank** | a sentence with the key part removed | the missing text |
+
+And a **Level**: **Introductory** goes for the core vocabulary and the headline figures;
+**Exam level** goes for mechanisms, conditions, exceptions, distinctions between things that
+are easily confused, and exact figures.
+
+Whatever you pick, every card still has to quote your source to survive — the accuracy
+checks don't change with the style. Fill-in-the-blank decks export as **real Anki cloze
+notes**, not a two-sided card with an underscore on it.
+
+## Where a card came from
+
+**Source** on any card opens the passage it was written from, with the sentence it quoted
+highlighted. It's a local lookup against the text saved with the deck, so it's instant and
+works offline.
+
+## Reading from a link, a scan, or a recording
+
+- **A web page** — paste the address. Only public `http`/`https` addresses are fetched.
+- **A YouTube lecture** — paste the video link and its captions become the source. English
+  captions are preferred when the video has them. A video with captions turned off will say
+  so rather than failing quietly.
+- **A scanned PDF** — one with no text layer is no longer refused. Its pages are rendered and
+  read by a vision model, so point the app at one (`ollama pull qwen2.5vl:7b`) first.
+- **A recording** — an `.mp3`, `.m4a`, `.wav` or video file is transcribed on your machine.
+  That needs two things installed, and the app will tell you if they're missing:
+
+  ```bash
+  brew install whisper-cpp ffmpeg
+  curl -L -o ~/whisper-base.en.bin \
+    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+  WHISPER_MODEL=~/whisper-base.en.bin npm run dev
+  ```
 
 ## Sending a deck to Anki
 

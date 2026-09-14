@@ -1,6 +1,7 @@
 #!/usr/bin/env node --experimental-strip-types
 // Run: npm test
-import { sourceWindow, regenerateCard } from "../lib/regenerate.ts";
+import { regenerateCard } from "../lib/regenerate.ts";
+import { sourceWindow } from "../lib/source.ts";
 import { definitionTokens, sameMeaning } from "../lib/dedupe.ts";
 import { replaceCard, newDeck, normalizeDeck, summarize } from "../lib/decks.ts";
 

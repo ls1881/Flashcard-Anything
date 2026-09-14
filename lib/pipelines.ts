@@ -1,6 +1,7 @@
 import { completeJson, type JsonSchema, type LlmConfig, type Part } from "./llm";
 import { reviewCards } from "./verify";
 import { addCards, newDeck, type Deck } from "./dedupe";
+import { shapeCard, type CardStyle, type Difficulty } from "./style";
 import type { Card } from "./duplex";
 
 /**
@@ -25,6 +26,20 @@ export type PipelineCtx = {
   /** "ACR = Expansion" pairs from the document, used to fold acronym duplicates. */
   glossary: string[];
   maxCards: number;
+  /** Card shape and difficulty. Both default to what the app shipped with. */
+  style?: CardStyle;
+  difficulty?: Difficulty;
+  /** Sections in flight at once. 1 for a local model, which serializes anyway. */
+  concurrency?: number;
+  /**
+   * Results of sections already written, so a run that died partway can be
+   * finished instead of started again. Supplied by the route; the pipelines
+   * neither know nor care where it is kept.
+   */
+  sectionCache?: {
+    get: (chunk: string) => { cards: Card[]; dropped: number; fixed: number } | null;
+    put: (chunk: string, result: { cards: Card[]; dropped: number; fixed: number }) => void;
+  };
   onProgress: (p: Progress) => void;
   /**
    * Cards accepted into the deck, handed over section by section as they are
@@ -49,6 +64,37 @@ export type Pipeline = {
   run: (ctx: PipelineCtx) => Promise<PipelineResult>;
 };
 
+const STYLE_RULES: Record<CardStyle, string> = {
+  definition: `Rules for every card:
+- "term" is only the thing being learned: a term, name, concept, formula name, date, or event. 1 to 5 words. Never a sentence, never a question, no trailing punctuation, and never any part of the definition.
+- "definition" carries all the substance: 1 to 3 sentences, under 45 words, understandable without seeing the term, and faithful to how this document uses it.
+- One card per distinct idea worth memorizing. Skip title slides, agendas, page numbers, and citations.
+- No duplicate terms.`,
+
+  question: `You are writing QUESTION cards, not definitions.
+
+Rules for every card:
+- "term" is a question the source answers. It must end in a question mark, stand on its own without the answer, and be under 20 words. Ask what the source explains — how something works, why it happens, what distinguishes two things, what a figure means.
+- "definition" is the answer: 1 to 3 sentences, under 45 words, drawn only from the source.
+- Never ask a question the source does not answer, and never ask one whose answer is only "yes" or "no".
+- One card per distinct idea worth knowing. Skip title slides, agendas, page numbers, and citations.
+- No two questions that test the same fact.`,
+
+  cloze: `You are writing CLOZE DELETION cards, not definitions.
+
+Rules for every card:
+- "term" is a sentence from the material with exactly one important piece removed and replaced by five underscores: _____. Keep it to one sentence, under 30 words. The sentence must still make sense and must give enough context to be answerable.
+- "definition" is exactly the text that was removed — usually one to five words, a figure, a name, or a short phrase. Nothing else: no explanation, no full sentence, no restatement.
+- Blank out the thing worth remembering: a quantity, a name, a mechanism, a defining property. Never blank out "the" or "and" or a word that is guessable from grammar alone.
+- Exactly one _____ per card, and the removed text must not appear elsewhere in the same sentence.
+- One card per distinct fact. No two cards blanking the same fact.`,
+};
+
+const DIFFICULTY_RULES: Record<Difficulty, string> = {
+  intro: `Aim at someone meeting this material for the first time. Favour the core vocabulary and the central ideas: what things are, what they do, and the headline figures. Prefer plain wording over the source's most technical phrasing, while keeping every claim faithful to it.`,
+  exam: `Aim at someone who has already read this and is being examined on it. Favour what is actually tested: mechanisms and the order of steps, conditions and exceptions, the distinctions between things that are easily confused, exact figures and their units, and the reasoning behind a result rather than the result alone. Skip the material a first reading already makes obvious.`,
+};
+
 const WRITER_RULES = `Rules for every card:
 - "term" is only the thing being learned: a term, name, concept, formula name, date, or event. 1 to 5 words. Never a sentence, never a question, no trailing punctuation, and never any part of the definition.
 - "definition" carries all the substance: 1 to 3 sentences, under 45 words, understandable without seeing the term, and faithful to how this document uses it.
@@ -70,6 +116,21 @@ Reply with exactly this shape:
 ${GROUNDING_RULE}
 
 ${WRITER_RULES}`;
+
+/** The writer prompt for a chosen card shape and difficulty. */
+export function writerSystem(style: CardStyle, difficulty: Difficulty): string {
+  return `You write study flashcards from a source document. You reply with JSON only — no commentary, no markdown fences.
+
+Reply with exactly this shape:
+{"cards":[{"term":"...","definition":"...","evidence":"..."}]}
+
+${GROUNDING_RULE}
+
+${STYLE_RULES[style]}
+
+WHO THIS IS FOR:
+${DIFFICULTY_RULES[difficulty]}`;
+}
 
 const sectionPrompt = (part: number, total: number) =>
   total > 1
@@ -110,7 +171,11 @@ export function isGrounded(evidence: string, haystack: string): boolean {
  * Pull well-formed cards out of a model response. When `haystack` is given, keep only
  * those whose quoted evidence really appears in what the model was shown.
  */
-export function harvest(raw: unknown, haystack: string | null): { cards: Card[]; dropped: number } {
+export function harvest(
+  raw: unknown,
+  haystack: string | null,
+  style: CardStyle = "definition"
+): { cards: Card[]; dropped: number } {
   const list = Array.isArray(raw)
     ? raw
     : Array.isArray((raw as { cards?: unknown })?.cards)
@@ -130,7 +195,12 @@ export function harvest(raw: unknown, haystack: string | null): { cards: Card[];
       dropped++;
       continue;
     }
-    cards.push({ term, definition, evidence });
+    const shaped = shapeCard({ term, definition, evidence }, style);
+    if (!shaped) {
+      dropped++;
+      continue;
+    }
+    cards.push(shaped);
   }
   return { cards, dropped };
 }
@@ -138,6 +208,18 @@ export function harvest(raw: unknown, haystack: string | null): { cards: Card[];
 /** Add to the deck, dropping anything that repeats a term or restates a definition. */
 export function mergeInto(deck: Deck, cards: Card[], maxCards: number): number {
   return addCards(deck, cards, maxCards);
+}
+
+/**
+ * How many chunks to have in flight at once.
+ *
+ * Ollama serializes requests per model — measured while benchmarking the
+ * ensemble pipeline: 1081s concurrently against 439s sequentially — so asking
+ * for parallelism there buys nothing and makes the requests contend. Hosted
+ * providers have no such limit, so a cloud run goes several times faster.
+ */
+export function concurrencyFor(provider: string): number {
+  return provider === "ollama" ? 1 : 4;
 }
 
 /**
@@ -159,10 +241,26 @@ export async function overChunks(
   let fixed = 0;
   let duplicates = 0;
 
-  for (let i = 0; i < ctx.chunks.length; i++) {
-    const chunk = ctx.chunks[i];
-    const shown = `${ctx.context}\n${chunk}`;
-    const result = await handle(chunk, shown, i, deck.cards.length);
+  const lanes = Math.max(1, Math.min(ctx.concurrency ?? 1, ctx.chunks.length));
+
+  /**
+   * A section, from the cache if it is already written. A hit skips the model
+   * entirely, so it also skips the progress the handler would have reported —
+   * hence reporting it here, or the page would sit still through the fast part.
+   */
+  const section = async (chunk: string, shown: string, i: number, soFar: number) => {
+    const cached = ctx.sectionCache?.get(chunk);
+    if (cached) {
+      ctx.onProgress({ phase: "reading", done: i, total: ctx.chunks.length, cards: soFar });
+      return cached;
+    }
+    const result = await handle(chunk, shown, i, soFar);
+    ctx.sectionCache?.put(chunk, result);
+    return result;
+  };
+
+  /** Fold one finished section into the deck, in section order. */
+  const absorb = (result: { cards: Card[]; dropped: number; fixed: number }) => {
     dropped += result.dropped;
     fixed += result.fixed;
     // Counted separately from `dropped`: a repeat isn't a grounding failure.
@@ -171,15 +269,41 @@ export async function overChunks(
     // Hand over what was actually kept, not what the model returned. The page
     // appends these verbatim, so a rejected card must never reach it.
     if (deck.cards.length > before) ctx.onCards?.(deck.cards.slice(before));
+  };
+
+  if (lanes === 1) {
+    for (let i = 0; i < ctx.chunks.length; i++) {
+      const chunk = ctx.chunks[i];
+      const shown = `${ctx.context}\n${chunk}`;
+      absorb(await section(chunk, shown, i, deck.cards.length));
+      if (deck.cards.length >= ctx.maxCards) break;
+    }
+    return { cards: deck.cards, dropped, fixed, duplicates };
+  }
+
+  // Several sections at once, but merged strictly in order: dedupe keeps the
+  // first card it sees, so letting completion order decide would make the same
+  // document give different decks on different days.
+  for (let start = 0; start < ctx.chunks.length; start += lanes) {
+    const batch = ctx.chunks.slice(start, start + lanes);
+    const soFar = deck.cards.length;
+    const results = await Promise.all(
+      batch.map((chunk, n) => section(chunk, `${ctx.context}\n${chunk}`, start + n, soFar))
+    );
+    for (const result of results) absorb(result);
     if (deck.cards.length >= ctx.maxCards) break;
   }
   return { cards: deck.cards, dropped, fixed, duplicates };
 }
 
+function systemFor(ctx: PipelineCtx): string {
+  return writerSystem(ctx.style ?? "definition", ctx.difficulty ?? "intro");
+}
+
 async function write(ctx: PipelineCtx, chunk: string, index: number): Promise<unknown> {
   return completeJson(
     ctx.cfg,
-    WRITER_SYSTEM,
+    systemFor(ctx),
     partsFor(chunk, ctx.context, sectionPrompt(index + 1, ctx.chunks.length))
   );
 }
@@ -192,7 +316,7 @@ const single: Pipeline = {
   run: (ctx) =>
     overChunks(ctx, async (chunk, _shown, i, soFar) => {
       ctx.onProgress({ phase: "reading", done: i, total: ctx.chunks.length, cards: soFar });
-      const found = harvest(await write(ctx, chunk, i), null);
+      const found = harvest(await write(ctx, chunk, i), null, ctx.style);
       return { ...found, fixed: 0 };
     }),
 };
@@ -205,7 +329,7 @@ const grounded: Pipeline = {
   run: (ctx) =>
     overChunks(ctx, async (chunk, shown, i, soFar) => {
       ctx.onProgress({ phase: "reading", done: i, total: ctx.chunks.length, cards: soFar });
-      const found = harvest(await write(ctx, chunk, i), shown);
+      const found = harvest(await write(ctx, chunk, i), shown, ctx.style);
       return { ...found, fixed: 0 };
     }),
 };
@@ -218,7 +342,7 @@ const groundedReview: Pipeline = {
   run: (ctx) =>
     overChunks(ctx, async (chunk, shown, i, soFar) => {
       ctx.onProgress({ phase: "reading", done: i, total: ctx.chunks.length, cards: soFar });
-      const found = harvest(await write(ctx, chunk, i), shown);
+      const found = harvest(await write(ctx, chunk, i), shown, ctx.style);
       if (!found.cards.length) return { ...found, fixed: 0 };
 
       ctx.onProgress({ phase: "checking", done: i, total: ctx.chunks.length, cards: soFar });
@@ -239,7 +363,7 @@ const reviewOnly: Pipeline = {
   run: (ctx) =>
     overChunks(ctx, async (chunk, shown, i, soFar) => {
       ctx.onProgress({ phase: "reading", done: i, total: ctx.chunks.length, cards: soFar });
-      const found = harvest(await write(ctx, chunk, i), null);
+      const found = harvest(await write(ctx, chunk, i), null, ctx.style);
       if (!found.cards.length) return { ...found, fixed: 0 };
 
       ctx.onProgress({ phase: "checking", done: i, total: ctx.chunks.length, cards: soFar });
@@ -305,14 +429,13 @@ const outlineFirst: Pipeline = {
         DEFINE_SYSTEM,
         partsFor(chunk, ctx.context, `Define these terms:\n${terms.map((t) => `- ${t}`).join("\n")}`)
       );
-      const found = harvest(defined, shown);
+      const found = harvest(defined, shown, ctx.style);
       return { ...found, fixed: 0 };
     }),
 };
 
-const ALT_WRITER_SYSTEM = `${WRITER_SYSTEM}
-
-Work through the section from beginning to end and favour the concepts a student would be tested on, including any that a first reading would skip over.`;
+const ALT_WRITER_NOTE =
+  "Work through the section from beginning to end and favour the concepts a student would be tested on, including any that a first reading would skip over.";
 
 /** 6. Two writers with different framings, merged, then checked and reviewed. */
 const ensemble: Pipeline = {
@@ -327,15 +450,15 @@ const ensemble: Pipeline = {
       // issuing both at once buys no parallelism and makes them contend: 1081s per case
       // concurrently against 439s sequentially. Even sequential this is 18x `grounded`,
       // which is why the extra coverage it buys isn't the default.
-      const a = await completeJson(ctx.cfg, WRITER_SYSTEM, partsFor(chunk, ctx.context, instruction));
+      const a = await completeJson(ctx.cfg, systemFor(ctx), partsFor(chunk, ctx.context, instruction));
       const b = await completeJson(
         ctx.cfg,
-        ALT_WRITER_SYSTEM,
+        `${systemFor(ctx)}\n\n${ALT_WRITER_NOTE}`,
         partsFor(chunk, ctx.context, instruction)
       );
 
-      const first = harvest(a, shown);
-      const second = harvest(b, shown);
+      const first = harvest(a, shown, ctx.style);
+      const second = harvest(b, shown, ctx.style);
       const pool = newDeck(ctx.glossary);
       mergeInto(pool, [...first.cards, ...second.cards], ctx.maxCards);
       const pooled = pool.cards;

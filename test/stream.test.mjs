@@ -137,5 +137,85 @@ const glossed = await overChunks(
 check("the acronym card is not streamed as a second card", aliased.flat(), ["intravaginal ring"]);
 check("and it is not in the deck twice", glossed.cards.length, 1);
 
+console.log("\nrunning sections in parallel must not change the deck:");
+/** Sections that finish out of order, later ones first. */
+async function runConcurrent(sections, concurrency, delays) {
+  const batches = [];
+  const finished = [];
+  const result = await overChunks(
+    {
+      cfg: {}, chunks: sections.map((_, i) => `chunk ${i}`), context: "c", glossary: [],
+      maxCards: 60, concurrency,
+      onProgress: () => {}, onCards: (cards) => batches.push(cards.map((c) => c.term)),
+    },
+    async (_chunk, _shown, i) => {
+      await new Promise((r) => setTimeout(r, delays[i] ?? 0));
+      finished.push(i);
+      return { cards: sections[i], dropped: 0, fixed: 0 };
+    }
+  );
+  return { batches, finished, terms: result.cards.map((c) => c.term) };
+}
+
+const sections = [[card("Alpha")], [card("Beta")], [card("Gamma")], [card("Delta")]];
+// Later sections return first, so completion order is the reverse of section order.
+const parallel = await runConcurrent(sections, 4, [40, 30, 20, 10]);
+check("sections really did finish out of order",
+  parallel.finished.join(",") !== "0,1,2,3", true);
+check("the deck is still in section order",
+  parallel.terms, ["Alpha", "Beta", "Gamma", "Delta"]);
+check("and so is what was streamed",
+  parallel.batches.flat(), ["Alpha", "Beta", "Gamma", "Delta"]);
+
+const sequential = await runConcurrent(sections, 1, [0, 0, 0, 0]);
+check("parallel and sequential give the identical deck",
+  parallel.terms, sequential.terms);
+
+// Dedupe keeps the first card it sees, so out-of-order merging would silently
+// change which of two near-identical cards survives.
+const clashing = [
+  [card("Mitosis")],
+  [{ term: "Mitosis", definition: "A different definition of the same term entirely." }],
+];
+const raced = await runConcurrent(clashing, 2, [30, 0]);
+check("the earlier section wins the duplicate, whichever finished first",
+  raced.terms, ["Mitosis"]);
+check("the kept card is the first section's",
+  (await runConcurrent(clashing, 2, [30, 0])).batches.flat(), ["Mitosis"]);
+
+console.log("\nsections already written are not written again:");
+const cache = new Map();
+let calls = 0;
+const withCache = async () => {
+  calls = 0;
+  return overChunks(
+    {
+      cfg: {}, chunks: ["one", "two", "three"], context: "", glossary: [], maxCards: 60,
+      onProgress: () => {}, onCards: () => {},
+      sectionCache: {
+        get: (chunk) => cache.get(chunk) ?? null,
+        put: (chunk, result) => cache.set(chunk, result),
+      },
+    },
+    async (chunk) => {
+      calls++;
+      return { cards: [card(`T-${chunk}`)], dropped: 0, fixed: 0 };
+    }
+  );
+};
+const first = await withCache();
+check("the first run writes every section", calls, 3);
+check("with the expected deck", first.cards.map((c) => c.term), ["T-one", "T-two", "T-three"]);
+const second = await withCache();
+check("the second run writes none of them", calls, 0);
+check("and produces the identical deck",
+  second.cards.map((c) => c.term), first.cards.map((c) => c.term));
+
+// The real case: a run that died partway only pays for what it missed.
+cache.delete("three");
+const resumed = await withCache();
+check("only the missing section is written again", calls, 1);
+check("and the deck is whole", resumed.cards.map((c) => c.term), ["T-one", "T-two", "T-three"]);
+
 console.log(failures === 0 ? "\nall streaming checks passed" : `\n${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

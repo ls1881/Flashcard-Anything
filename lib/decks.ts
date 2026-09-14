@@ -1,4 +1,5 @@
 import type { Card } from "./duplex";
+import { isCardStyle, type CardStyle } from "./style";
 
 /**
  * Deck storage in IndexedDB.
@@ -37,6 +38,12 @@ export type Deck = DeckMeta & {
    * existed have none, and regenerate says so rather than inventing.
    */
   sourceText: string | null;
+  /**
+   * Which shape the cards were written in. Cloze decks export to Anki's own
+   * cloze note type rather than a term/definition pair, so a deck has to
+   * remember what it is.
+   */
+  style: CardStyle;
 };
 
 export const PASTED = "pasted text";
@@ -122,6 +129,7 @@ export function newDeck(input: {
   scope: string | null;
   model: DeckModel | null;
   sourceText?: string | null;
+  style?: CardStyle;
   name?: string;
   now?: number;
 }): Deck {
@@ -134,6 +142,7 @@ export function newDeck(input: {
     model: input.model,
     cards: input.cards,
     sourceText: input.sourceText ?? null,
+    style: input.style ?? "definition",
     count: input.cards.length,
     createdAt: at,
     updatedAt: at,
@@ -200,6 +209,8 @@ export function normalizeDeck(raw: unknown): Deck | null {
     model,
     cards,
     sourceText: typeof d.sourceText === "string" && d.sourceText ? d.sourceText : null,
+    // Decks predating card styles are all definition decks.
+    style: isCardStyle(String(d.style)) ? (d.style as CardStyle) : "definition",
     // Recomputed, never trusted: a stale count would misreport the list.
     count: cards.length,
     createdAt,

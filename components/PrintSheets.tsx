@@ -1,4 +1,5 @@
 import { backSheetOrder, paginate, type Card, type FlipEdge, type Layout } from "@/lib/duplex";
+import type { CardStyle } from "@/lib/style";
 
 /** Trim floating-point noise so the CSS reads as inches, not 3.6339999999in. */
 const inches = (n: number) => `${Math.round(n * 10000) / 10000}in`;
@@ -15,10 +16,12 @@ export default function PrintSheets({
   cards,
   flip,
   layout,
+  style = "definition",
 }: {
   cards: Card[];
   flip: FlipEdge;
   layout: Layout;
+  style?: CardStyle;
 }) {
   const sheet = {
     width: inches(layout.paper.width),
@@ -38,14 +41,14 @@ export default function PrintSheets({
       <div className="sheets" aria-hidden="true">
         {paginate(cards, layout.perPage).map((page, i) => (
           <div key={i}>
-            <div className={`sheet sheet-${layout.cardSize.id}`} style={sheet}>
+            <div className={`sheet sheet-${layout.cardSize.id} sheet-style-${style}`} style={sheet}>
               {page.map((card, j) => (
                 <div key={j} className="cell cell-front">
                   {card?.term ?? ""}
                 </div>
               ))}
             </div>
-            <div className={`sheet sheet-${layout.cardSize.id}`} style={sheet}>
+            <div className={`sheet sheet-${layout.cardSize.id} sheet-style-${style}`} style={sheet}>
               {backSheetOrder(page, flip, layout).map((card, j) => (
                 <div key={j} className="cell cell-back">
                   {card?.definition ?? ""}

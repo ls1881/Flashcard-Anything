@@ -8,7 +8,9 @@ const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp
 /** Everything an upload can become before it reaches the model. */
 export type Source =
   | { kind: "text"; text: string; pages: string[] }
-  | { kind: "image"; dataUrl: string };
+  | { kind: "image"; dataUrl: string }
+  /** A scan: pages with no text layer, to be read by a vision model. */
+  | { kind: "scan"; dataUrls: string[]; name: string };
 
 function decodeXmlEntities(s: string): string {
   return s
@@ -68,6 +70,296 @@ async function docxToText(buf: Buffer): Promise<string> {
   const doc = zip.files["word/document.xml"];
   if (!doc) return "";
   return textFromOoxml(await doc.async("string"), "w:t");
+}
+
+const AUDIO_EXTENSIONS = new Set(["mp3", "m4a", "wav", "aac", "flac", "ogg", "opus", "mp4", "mov", "webm"]);
+
+export function isAudioName(name: string): boolean {
+  const ext = name.toLowerCase().split(".").pop() ?? "";
+  return AUDIO_EXTENSIONS.has(ext);
+}
+
+/**
+ * A recorded lecture, transcribed locally.
+ *
+ * `whisper-cpp` is a binary the reader installs, the same bargain Ollama asks
+ * for: nothing is uploaded, and no key is needed. It is looked up rather than
+ * bundled, and its absence is reported as instructions rather than a crash.
+ */
+export async function audioToSource(buf: Buffer, name: string): Promise<Source> {
+  const { spawn } = await import("node:child_process");
+  const { mkdtemp, writeFile, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const binary = process.env.WHISPER_BIN ?? "whisper-cli";
+  const model = process.env.WHISPER_MODEL ?? "";
+
+  const dir = await mkdtemp(join(tmpdir(), "fca-audio-"));
+  const input = join(dir, "input");
+  const output = join(dir, "out");
+  try {
+    await writeFile(input, buf);
+
+    // whisper.cpp only reads 16kHz mono WAV, so anything else goes through
+    // ffmpeg first — which is already on any machine that has whisper.
+    const wav = join(dir, "audio.wav");
+    await run("ffmpeg", ["-nostdin", "-loglevel", "error", "-i", input,
+      "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav], spawn,
+      `Converting "${name}" needs ffmpeg. Install it with "brew install ffmpeg".`);
+
+    const args = ["-f", wav, "-otxt", "-of", output, "-nt"];
+    if (model) args.push("-m", model);
+    await run(binary, args, spawn,
+      `Reading audio needs whisper.cpp. Install it with "brew install whisper-cpp" and download a model, ` +
+      `then set WHISPER_MODEL to the model file. Or upload a transcript instead.`);
+
+    const text = stripControlChars((await readFile(`${output}.txt`, "utf8")).trim());
+    if (text.length < 200) {
+      throw new Error(`"${name}" transcribed to almost nothing. Check the recording has speech in it.`);
+    }
+    return { kind: "text", text: paragraphize(text), pages: [paragraphize(text)] };
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/** Run a binary, turning "not installed" into instructions. */
+function run(
+  command: string,
+  args: string[],
+  spawn: typeof import("node:child_process").spawn,
+  missingMessage: string
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    child.stderr?.on("data", (d) => (stderr += String(d)));
+    child.on("error", (err: NodeJS.ErrnoException) => {
+      reject(new Error(err.code === "ENOENT" ? missingMessage : err.message));
+    });
+    child.on("close", (code) => {
+      if (code === 0) return resolve();
+      // whisper.cpp says this when it cannot find its model file.
+      if (/failed to initialize|no such file|unable to load model/i.test(stderr)) {
+        return reject(new Error(missingMessage));
+      }
+      reject(new Error(`${command} failed: ${stderr.trim().split("\n").pop() ?? `exit ${code}`}`));
+    });
+  });
+}
+
+/** A scanned page is large; more than this and a local model will crawl. */
+const MAX_SCAN_PAGES = 12;
+
+/**
+ * Render a text-less PDF to page images.
+ *
+ * 150dpi is the trade: enough for a vision model to read body text off a
+ * photocopy, small enough that a dozen pages don't exhaust a local model's
+ * context. Rendering happens here rather than in the browser because the PDF
+ * was already parsed here and shipping pages back and forth would double the
+ * work.
+ */
+export async function scanToSource(buf: Buffer, name: string): Promise<Source> {
+  const { getDocumentProxy, renderPageAsImage } = await import("unpdf");
+  const bytes = new Uint8Array(buf);
+  const doc = await getDocumentProxy(new Uint8Array(bytes));
+  const total = doc.numPages;
+  if (!total) throw new Error(`"${name}" has no pages.`);
+
+  const wanted = Math.min(total, MAX_SCAN_PAGES);
+  const dataUrls: string[] = [];
+  for (let page = 1; page <= wanted; page++) {
+    try {
+      const png = await renderPageAsImage(new Uint8Array(bytes), page, {
+        scale: 2,
+        // unpdf has no canvas of its own in Node; it wants one handed to it.
+        canvasImport: () => import("@napi-rs/canvas") as never,
+      });
+      dataUrls.push(`data:image/png;base64,${Buffer.from(png).toString("base64")}`);
+    } catch {
+      // One unrenderable page shouldn't lose the rest of the chapter.
+    }
+  }
+  if (!dataUrls.length) {
+    throw new Error(
+      `"${name}" has no text and its pages couldn't be rendered either. Export a text-based PDF instead.`
+    );
+  }
+  return { kind: "scan", dataUrls, name };
+}
+
+/**
+ * A YouTube video id, from any of the shapes people paste.
+ *
+ * Returns null for anything that isn't YouTube, so the caller can fall through
+ * to fetching it as an ordinary page.
+ */
+export function youtubeId(raw: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase().replace(/^www\.|^m\./, "");
+  const isId = (v: string | null): v is string => !!v && /^[\w-]{11}$/.test(v);
+
+  if (host === "youtu.be") {
+    const id = url.pathname.slice(1).split("/")[0];
+    return isId(id) ? id : null;
+  }
+  if (host !== "youtube.com" && host !== "youtube-nocookie.com") return null;
+
+  const v = url.searchParams.get("v");
+  if (isId(v)) return v;
+  // /embed/ID, /shorts/ID, /live/ID
+  const path = url.pathname.split("/").filter(Boolean);
+  if (path.length >= 2 && ["embed", "shorts", "live", "v"].includes(path[0])) {
+    return isId(path[1]) ? path[1] : null;
+  }
+  return null;
+}
+
+/**
+ * A lecture's transcript, as text.
+ *
+ * Recorded lectures are a major study input, and a transcript is the cheapest
+ * possible way in — no audio, no transcription, just text YouTube already has.
+ * Auto-generated captions have no punctuation and no sentence breaks, so they
+ * are re-wrapped into paragraph-sized blocks: the chunker splits on blank lines,
+ * and one unbroken wall of words would become a single chunk.
+ */
+export async function youtubeToSource(id: string): Promise<Source> {
+  const { YoutubeTranscript } = await import("youtube-transcript");
+
+  let parts: { text: string }[];
+  try {
+    // Ask for English first. Left to itself the library takes whichever caption
+    // track is listed first, which on a popular talk is as likely to be a
+    // translation — an English lecture coming back in Arabic is worse than no
+    // transcript, because nothing downstream would notice.
+    try {
+      parts = await YoutubeTranscript.fetchTranscript(id, { lang: "en" });
+    } catch {
+      parts = await YoutubeTranscript.fetchTranscript(id);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "";
+    if (/disabled|not available|No transcripts/i.test(message)) {
+      throw new Error(
+        "That video has no captions, so there's no transcript to read. Try a video with subtitles, or paste the text instead."
+      );
+    }
+    throw new Error(
+      "Couldn't fetch that video's transcript. YouTube changes how captions are served from time to time; paste the transcript text instead."
+    );
+  }
+
+  const words = parts
+    .map((p) => decodeXmlEntities(String(p.text ?? "")).replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" ");
+  if (words.length < 200) {
+    throw new Error("That video's transcript was too short to make cards from.");
+  }
+  return { kind: "text", text: paragraphize(words), pages: [paragraphize(words)] };
+}
+
+/** Break an unpunctuated caption stream into blocks the chunker can split on. */
+export function paragraphize(text: string, wordsPerBlock = 110): string {
+  const words = text.split(/\s+/).filter(Boolean);
+  const blocks: string[] = [];
+  for (let i = 0; i < words.length; i += wordsPerBlock) {
+    blocks.push(words.slice(i, i + wordsPerBlock).join(" "));
+  }
+  return blocks.join("\n\n");
+}
+
+/**
+ * A page on the web, turned into the same text any upload becomes.
+ *
+ * Fetched here rather than in the browser because a page will not hand its HTML
+ * to another origin, and because extraction already lives on this side.
+ */
+export async function urlToSource(raw: string): Promise<Source> {
+  const url = safeUrl(raw);
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      redirect: "follow",
+      headers: {
+        // Some sites serve a different, emptier page to an unknown client.
+        "user-agent": "Mozilla/5.0 (compatible; FlashcardAnything/1.0)",
+        accept: "text/html,application/xhtml+xml,text/plain;q=0.9",
+      },
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch (err) {
+    const why = err instanceof Error && err.name === "TimeoutError" ? "took too long" : "couldn't be reached";
+    throw new Error(`That page ${why}. Check the address, or paste the text instead.`);
+  }
+
+  if (!res.ok) {
+    throw new Error(`That page returned ${res.status}. Check the address, or paste the text instead.`);
+  }
+
+  const type = res.headers.get("content-type") ?? "";
+  if (!/text\/html|text\/plain|application\/xhtml/i.test(type)) {
+    throw new Error(
+      `That address is ${type.split(";")[0] || "not a web page"}, not a page of text. Download it and upload the file instead.`
+    );
+  }
+
+  const body = await res.text();
+  const text = stripControlChars(/text\/plain/i.test(type) ? body : stripHtml(body));
+  if (text.trim().length < 200) {
+    throw new Error(
+      "There wasn't enough readable text on that page — it may need JavaScript to render. Copy the text and paste it instead."
+    );
+  }
+  return { kind: "text", text, pages: [text] };
+}
+
+/**
+ * Only public http(s). A server that will fetch any address its client names
+ * is a way into whatever else that server can reach, which on a hosted deploy
+ * means cloud metadata and anything else on the private network.
+ */
+function safeUrl(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    throw new Error(`"${raw.trim()}" isn't a web address.`);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Only http and https addresses can be read.");
+  }
+  if (isPrivateHost(url.hostname)) {
+    throw new Error("That address is on a private network, so it can't be fetched.");
+  }
+  return url;
+}
+
+export function isPrivateHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal")) return true;
+  // IPv6 loopback and the link-local / unique-local ranges.
+  if (host === "::1" || /^fe80:/i.test(host) || /^f[cd][0-9a-f]{2}:/i.test(host)) return true;
+
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!v4) return false;
+  const [a, b] = v4.slice(1).map(Number);
+  return (
+    a === 0 || a === 10 || a === 127 ||
+    (a === 169 && b === 254) ||              // link-local, incl. cloud metadata
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 100 && b >= 64 && b <= 127)       // carrier-grade NAT
+  );
 }
 
 function stripHtml(html: string): string {
@@ -178,17 +470,20 @@ export async function fileToSource(file: File): Promise<Source> {
     return { kind: "image", dataUrl: `data:${file.type};base64,${buf.toString("base64")}` };
   }
 
+  // Audio and video are decided by name: the bytes are a container format that
+  // says nothing useful about whether there is speech inside.
+  if (isAudioName(lower)) return await audioToSource(buf, name);
+
   const { kind, zip } = await detectKind(buf, lower);
 
   let pages: string[];
   switch (kind) {
     case "pdf":
       pages = await pdfToPages(buf);
-      if (!pages.join("").trim()) {
-        throw new Error(
-          `"${name}" has no extractable text — it's probably a scan. Export a text-based PDF, or screenshot the pages and upload them as images with a vision model.`
-        );
-      }
+      // No text layer means a scan. Photocopied readers are exactly what
+      // students have, so rather than refusing, render the pages and let the
+      // vision model read them — the same path an uploaded photo already takes.
+      if (!pages.join("").trim()) return await scanToSource(buf, name);
       break;
     case "pptx":
       pages = await pptxToPages(buf);

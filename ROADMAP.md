@@ -8,15 +8,36 @@ a later reader can disagree with it.
 
 ## The gap worth naming
 
-The app is strongest at *generation* and weakest at *everything after generation*. That gap
-is now closed: decks survive a reload, arrive while the run is still going, can be corrected
-a card at a time, and leave as an Anki package that imports into the app people actually
-study in. What's left below is breadth — more input formats and better card shapes — rather
-than the hole that was here.
+The app was strongest at *generation* and weakest at *everything after generation*. That gap
+is closed: decks survive a reload, arrive while the run is still going, can be corrected a
+card at a time, and leave as an Anki package that imports into the app people actually study
+in. The breadth that was listed under it — scans, recordings, links, several files at once,
+cloze and question cards, caching — is built too.
+
+What is left is not a hole so much as a list of things nobody has asked for yet. The one
+thing genuinely missing is sync, and that needs auth, which needs a reason.
 
 ## Next
 
-Ordered. Each one is worth doing on its own.
+Everything originally listed here is built. What follows is what has been thought of since.
+
+### More paper and card sizes
+
+The mechanism is now general — a paper is a width and a height, a card size is a width and a
+height, and everything else is computed — so A5, Legal, A6 index cards and the EU 85 × 55mm
+business card are entries in a table rather than new code. Left until someone wants one.
+
+### Sync a deck to another device
+
+The one thing actually missing. A deck lives in the browser that made it, so a deck made on
+a laptop is not on a phone. It needs a server-side database, which needs auth, which needs a
+reason — see "Not planned" below, where auth is still recorded as not worth it. This is the
+entry that would reopen that question.
+
+## Built
+
+Kept with their original reasoning so a later reader can see what was predicted and what
+actually happened.
 
 ### ~~1. Persistence — decks survive a reload~~ — built
 
@@ -78,39 +99,38 @@ stylesheet into the layout. Verified by printing the page to PDF in a real brows
 measuring the result — A4 pages come out 8.26 × 11.69in, and an index card is cut at exactly
 3 × 5in.
 
-### 6. More paper and card sizes
+### ~~Input coverage~~ — built
 
-The mechanism is now general — a paper is a width and a height, a card size is a width and a
-height, and everything else is computed — so A5, Legal, A6 index cards and the EU 85 × 55mm
-business card are entries in a table rather than new code. Left until someone wants one.
-
-## Input coverage
-
-| Item | Why |
+| Item | What happened |
 | --- | --- |
-| OCR for scanned PDFs | Currently a hard refusal, and photocopied readers are exactly what students have. `tesseract.js` runs locally, which fits the no-cloud default. |
-| YouTube transcripts | Recorded lectures are a major study input and transcripts are cheap to fetch. |
-| Multiple files into one deck | "Everything for this exam" is the natural unit, not one file. |
-| URL input | Paste a course page or article; scrape to text and reuse the existing path. |
-| Audio to transcript | `whisper.cpp` locally, for lectures recorded on a phone. |
+| ~~OCR for scanned PDFs~~ | A PDF with no text layer is rasterised (`unpdf` + `@napi-rs/canvas`) and read by the vision model the app already supports, rather than adding a second OCR engine. Verified on a PDF with a zero-length text layer. |
+| ~~YouTube transcripts~~ | A YouTube link fetches the video's captions instead of the page. English is requested explicitly — left to itself the library returns whichever track is listed first, which on a popular talk is often a translation. |
+| ~~Multiple files into one deck~~ | Several files are extracted, headed with their filenames and merged before chunking. Images and scans still go one at a time, since each needs its own vision pass. |
+| ~~URL input~~ | A pasted link is fetched and stripped to text. Only public http(s): a server that fetches any address its client names is a way into whatever else that server can reach. |
+| ~~Audio to transcript~~ | `whisper-cli` locally, with `ffmpeg` to normalise the audio first. Both are looked up rather than bundled, and their absence is reported as instructions. |
 
-## Card quality
+### ~~Card quality~~ — built
 
-- **Cloze deletion** — "Glycolysis produces a net gain of ___ ATP" is often a better format
-  than term/definition, particularly for numbers and process steps.
-- **Question-style cards** where material isn't definitional.
-- **Difficulty setting** — introductory recall against exam-level application.
-- **Jump to source** — click a card and see the page or section it came from. Cards already
-  carry an `evidence` span and the outline already carries page offsets, so this is mostly
-  wiring.
+- ~~**Cloze deletion**~~ — a **Fill in the blank** style. Cloze decks export to Anki's own
+  cloze note type (`{{c1::…}}`, model `type: 1`), not a two-sided note dressed up as one.
+- ~~**Question-style cards**~~ — a **Questions** style, held to actually being a question.
+- ~~**Difficulty setting**~~ — **Introductory** against **Exam level**, as a prompt section.
+- ~~**Jump to source**~~ — **Source** on any card opens the passage it came from, with its
+  quoted evidence highlighted. A local lookup against the deck's stored text, no round trip.
 
-## Performance
+The pipeline, the evidence check and the deduper are untouched by any of it: a cloze deck is
+verified against its source exactly as a definition deck is.
 
-- **Cache by content hash** so regenerating an unchanged file is instant.
-- **Parallel chunks on cloud providers.** Ollama serializes requests per model — measured
-  while benchmarking the ensemble pipeline — but hosted providers do not, so a cloud run
-  could be several times faster.
-- **Resume an interrupted generation** rather than starting over.
+### ~~Performance~~ — built
+
+- ~~**Cache by content hash**~~ — keyed on the source text plus every setting that changes
+  the output, so a hit cannot be wrong. Measured at 16s → 0s on a repeat run.
+- ~~**Parallel chunks on cloud providers**~~ — four sections in flight for hosted providers,
+  one for Ollama, which serializes per model anyway. Sections merge in section order however
+  they finish, or the same document would give different decks on different days.
+- ~~**Resume an interrupted generation**~~ — sections are cached individually, so a run that
+  died on section nine only pays for section nine. No "where was I" bookkeeping: the key is
+  the section's own text, so an edited document reruns only what changed.
 
 ## Not planned
 

@@ -5,6 +5,15 @@ import PrintSheets from "@/components/PrintSheets";
 import SettingsPanel, { baseUrlFor, keyFor, modelFor } from "@/components/Settings";
 import { DEFAULT_SETTINGS, PROVIDERS, type Settings } from "@/lib/providers";
 import {
+  CARD_STYLES,
+  CLOZE_BLANK,
+  DIFFICULTIES,
+  isCardStyle,
+  isDifficulty,
+  type CardStyle,
+} from "@/lib/style";
+import { passageFor } from "@/lib/source";
+import {
   CARD_SIZE_LIST,
   PAPER_LIST,
   isCardSizeId,
@@ -35,7 +44,8 @@ const STORAGE_KEY = "flashcard-anything:settings";
 const LAST_DECK_KEY = "flashcard-anything:last-deck";
 
 export default function Home() {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [url, setUrl] = useState("");
   const [text, setText] = useState("");
   const [scope, setScope] = useState("");
   const [deck, setDeck] = useState<Deck | null>(null);
@@ -51,6 +61,8 @@ export default function Home() {
   const [rewriting, setRewriting] = useState<number | null>(null);
   const [cardError, setCardError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  /** Index of the card whose source passage is open beneath the grid. */
+  const [showingSource, setShowingSource] = useState<number | null>(null);
   const [decks, setDecks] = useState<DeckMeta[]>([]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -69,7 +81,7 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const ready = Boolean(file) || text.trim().length > 0;
+  const ready = files.length > 0 || url.trim().length > 0 || text.trim().length > 0;
 
   // Settings live in this browser; nothing is written to the repo.
   useEffect(() => {
@@ -83,6 +95,8 @@ export default function Home() {
         if (!isPaperId(String(stored.paper))) delete stored.paper;
         if (!isCardSizeId(String(stored.cardSize))) delete stored.cardSize;
         if (stored.flip !== "long" && stored.flip !== "short") delete stored.flip;
+        if (!isCardStyle(String(stored.style))) delete stored.style;
+        if (!isDifficulty(String(stored.difficulty))) delete stored.difficulty;
         setSettings({ ...DEFAULT_SETTINGS, ...stored });
       }
     } catch {
@@ -165,9 +179,12 @@ export default function Home() {
     let sourceText = "";
     try {
       const body = new FormData();
-      if (file) body.append("file", file);
+      if (files.length) for (const f of files) body.append("file", f);
+      else if (url.trim()) body.append("url", url.trim());
       else body.append("text", text);
       if (scope.trim()) body.append("scope", scope.trim());
+      body.append("style", settings.style);
+      body.append("difficulty", settings.difficulty);
       body.append("provider", settings.provider);
       body.append("model", modelFor(settings));
       body.append("apiKey", keyFor(settings));
@@ -208,10 +225,11 @@ export default function Home() {
           } else if (msg.type === "result") {
             const made = newDeck({
               cards: msg.cards as Card[],
-              source: file?.name ?? PASTED,
+              source: sourceLabel(),
               scope: msg.scope ?? null,
               model: { provider: settings.provider, name: modelFor(settings) },
               sourceText,
+              style: settings.style,
             });
             setDeck(made);
             setStreamed([]);
@@ -227,10 +245,11 @@ export default function Home() {
         // worse than handing over a short deck and saying what happened.
         const made = newDeck({
           cards: collected,
-          source: file?.name ?? PASTED,
+          source: sourceLabel(),
           scope: null,
           model: { provider: settings.provider, name: modelFor(settings) },
           sourceText,
+          style: settings.style,
         });
         setDeck(made);
         setStreamed([]);
@@ -314,11 +333,26 @@ export default function Home() {
   }
 
   /** Back to the form. The open deck stays on disk; this only closes it. */
+  /** What to call this deck's origin: one file, several, a link, or a paste. */
+  function sourceLabel(): string {
+    if (files.length === 1) return files[0].name;
+    if (files.length > 1) return `${files.length} files`;
+    if (url.trim()) {
+      try {
+        return new URL(url.trim()).hostname.replace(/^www\./, "");
+      } catch {
+        return url.trim();
+      }
+    }
+    return PASTED;
+  }
+
   function reset() {
     setDeck(null);
     setStreamed([]);
     setPartial(null);
-    setFile(null);
+    setFiles([]);
+    setUrl("");
     setText("");
     setScope("");
     setError(null);
@@ -438,6 +472,7 @@ export default function Home() {
           cards: deck.cards,
           deckKey: deck.id,
           source: deck.source,
+          style: deck.style,
         }),
       });
       if (!res.ok) {
@@ -629,9 +664,9 @@ export default function Home() {
                 ) : (
                   <>
                     <button
-                      className={`flip flip-${flip}${flipped.has(i) ? " flipped" : ""}${
-                        rewriting === i ? " busy" : ""
-                      }`}
+                      className={`flip flip-${flip} style-${deck?.style ?? "definition"}${
+                        flipped.has(i) ? " flipped" : ""
+                      }${rewriting === i ? " busy" : ""}`}
                       onClick={() => toggle(i)}
                     >
                       <div className="flip-inner">
@@ -658,6 +693,15 @@ export default function Home() {
                         >
                           {rewriting === i ? "AI rewriting…" : "AI rewrite"}
                         </button>
+                        {deck.sourceText && (
+                          <button
+                            className="linkish"
+                            title="Show the passage this card came from"
+                            onClick={() => setShowingSource(showingSource === i ? null : i)}
+                          >
+                            {showingSource === i ? "Hide source" : "Source"}
+                          </button>
+                        )}
                       </div>
                     )}
                   </>
@@ -665,6 +709,43 @@ export default function Home() {
               </div>
             ))}
           </div>
+
+          {deck && showingSource !== null && (() => {
+            const card = deck.cards[showingSource];
+            const passage = card && deck.sourceText
+              ? passageFor(deck.sourceText, card.evidence ?? "")
+              : null;
+            if (!passage) return null;
+            const { text, highlight } = passage;
+            return (
+              <div className="source-panel">
+                <div className="source-head">
+                  <b>{card.term}</b>
+                  <span>in {deck.source ?? "your material"}</span>
+                  <button className="linkish" onClick={() => setShowingSource(null)}>
+                    Close
+                  </button>
+                </div>
+                <p className="passage">
+                  {highlight ? (
+                    <>
+                      {text.slice(0, highlight.start)}
+                      <mark>{text.slice(highlight.start, highlight.end)}</mark>
+                      {text.slice(highlight.end)}
+                    </>
+                  ) : (
+                    text
+                  )}
+                </p>
+                {!highlight && (
+                  <p className="source-note">
+                    This card quotes nothing that could be found in the text, so this is the
+                    start of the material rather than the passage it came from.
+                  </p>
+                )}
+              </div>
+            );
+          })()}
 
           <p className="hint">
             {deck ? (
@@ -682,7 +763,9 @@ export default function Home() {
           </p>
         </div>
 
-        {deck && <PrintSheets cards={deck.cards} flip={flip} layout={layout} />}
+        {deck && (
+          <PrintSheets cards={deck.cards} flip={flip} layout={layout} style={deck.style} />
+        )}
       </>
     );
   }
@@ -707,14 +790,26 @@ export default function Home() {
           </div>
         ) : (
           <>
-            {file ? (
-              <div className="chosen">
-                <b>{file.name}</b>
-                <button className="linkish" onClick={() => setFile(null)}>
-                  Remove
+            {files.length > 0 && (
+              <div className="chosen-list">
+                {files.map((f, i) => (
+                  <div className="chosen" key={`${f.name}-${i}`}>
+                    <b>{f.name}</b>
+                    <button
+                      className="linkish"
+                      onClick={() => setFiles(files.filter((_, j) => j !== i))}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <button className="linkish add-more" onClick={() => inputRef.current?.click()}>
+                  Add another file
                 </button>
               </div>
-            ) : (
+            )}
+
+            {files.length === 0 && (
               <div
                 className={`drop${over ? " over" : ""}`}
                 onClick={() => inputRef.current?.click()}
@@ -726,12 +821,15 @@ export default function Home() {
                 onDrop={(e) => {
                   e.preventDefault();
                   setOver(false);
-                  const dropped = e.dataTransfer.files[0];
-                  if (dropped) setFile(dropped);
+                  const dropped = Array.from(e.dataTransfer.files);
+                  if (dropped.length) setFiles(dropped);
                 }}
               >
-                <strong>Drop a file here</strong>
-                <span>PDF, PowerPoint, Word, text, or an image — or click to browse</span>
+                <strong>Drop files here</strong>
+                <span>
+                  PDF, PowerPoint, Word, text, an image, or a recording — or click to browse.
+                  Several files become one deck.
+                </span>
               </div>
             )}
 
@@ -739,18 +837,37 @@ export default function Home() {
               ref={inputRef}
               type="file"
               hidden
-              accept=".pdf,.pptx,.docx,.txt,.md,.csv,image/*"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              multiple
+              accept=".pdf,.pptx,.docx,.epub,.rtf,.html,.txt,.md,.csv,image/*,audio/*,video/*"
+              onChange={(e) => {
+                const picked = Array.from(e.target.files ?? []);
+                if (picked.length) setFiles([...files, ...picked]);
+                // Clear it, or picking the same file twice in a row does nothing.
+                e.target.value = "";
+              }}
             />
 
-            {!file && (
+            {files.length === 0 && (
               <>
-                <div className="or">or paste text</div>
-                <textarea
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  placeholder="Paste a chapter, your notes, a transcript…"
+                <div className="or">or paste a link — a page or a YouTube video</div>
+                <input
+                  className="scope"
+                  value={url}
+                  spellCheck={false}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://… a course page, an article, or a YouTube lecture"
                 />
+
+                {!url.trim() && (
+                  <>
+                    <div className="or">or paste text</div>
+                    <textarea
+                      value={text}
+                      onChange={(e) => setText(e.target.value)}
+                      placeholder="Paste a chapter, your notes, a transcript…"
+                    />
+                  </>
+                )}
               </>
             )}
 
@@ -761,6 +878,46 @@ export default function Home() {
               onChange={(e) => setScope(e.target.value)}
               placeholder={'Which part? e.g. "chapter 3, section 2" — optional'}
             />
+
+            <div className="style-row">
+              <label className="edge">
+                Cards as
+                <select
+                  value={settings.style}
+                  onChange={(e) =>
+                    updateSettings({ ...settings, style: e.target.value as CardStyle })
+                  }
+                >
+                  {CARD_STYLES.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="edge">
+                Level
+                <select
+                  value={settings.difficulty}
+                  onChange={(e) =>
+                    updateSettings({
+                      ...settings,
+                      difficulty: e.target.value as typeof settings.difficulty,
+                    })
+                  }
+                >
+                  {DIFFICULTIES.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <p className="style-hint">
+              {CARD_STYLES.find((s) => s.id === settings.style)?.hint}{" "}
+              {DIFFICULTIES.find((d) => d.id === settings.difficulty)?.hint}
+            </p>
 
             <button className="primary" onClick={generate} disabled={!ready}>
               Make flashcards

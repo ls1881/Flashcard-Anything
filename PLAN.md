@@ -18,14 +18,15 @@ Convert slideshows, PDFs, textbook chapters, notes, and images into flashcards, 
 ## Not built yet
 
 There is no server-side database and no sync — decks are saved in the browser they were made
-in and go no further. There is no study scheduler, and one is not planned: decks export to
+in, so a deck made on a laptop is not on a phone. There is no study scheduler, and one is not planned: decks export to
 Anki, which has one, along with the mobile apps and the sync this doesn't. See
 [ROADMAP.md](ROADMAP.md).
 
 ## Core flow
 
-1. User uploads a file (PDF, pptx, docx, epub, rtf, html, text, or an image) or pastes text,
-   optionally naming the part they want.
+1. User uploads files (PDF, pptx, docx, epub, rtf, html, text, an image, a scan, or a
+   recording), pastes a link — a page or a YouTube video — or pastes text, optionally naming
+   the part they want.
 2. Backend normalizes the input to text, strips page furniture, and resolves any requested
    chapter/section/page range.
 3. The chosen model turns each chunk into `{term, definition, evidence}` cards as structured
@@ -122,6 +123,92 @@ Because cards now arrive before the end, a failure partway is no longer all-or-n
 the stream errors after cards have landed, the page keeps them, saves them, and says the run
 stopped early — losing nine finished sections because the tenth timed out would be worse
 than a short deck.
+
+## Card shape and difficulty (built)
+
+Term-and-definition is a poor fit for a number or a process step, and the same material
+suits a first reading and an exam differently. Both are prompt-level choices, in
+`lib/style.ts`:
+
+- **Definitions** — the original: a term on the front, what it means on the back.
+- **Questions** — a question the source answers. Held to actually ending in a question mark.
+- **Fill in the blank** — a sentence with one span removed. Held to exactly one blank, a
+  non-empty answer, and an answer that does not also sit visibly in the sentence.
+- **Introductory** against **Exam level** — core vocabulary and headline figures, against
+  mechanisms, conditions, exceptions and exact figures.
+
+Nothing below the prompt changed. The evidence check, the deduper and the card cap treat a
+cloze deck exactly as a definition deck, so a fill-in-the-blank card still has to quote its
+source. `shapeCard` discards what the style promises but the model didn't deliver:
+punctuation is repaired, a missing blank is not, because inventing where the gap goes would
+be making the card up.
+
+A cloze deck exports to Anki's **own** cloze note type — one `Text` field with `{{c1::…}}`
+and `type: 1` on the model, so Anki generates the card from the marker. A two-sided note
+with an underscore on the front would be studiable but would not survive the reader editing
+it, and is not what Anki means by cloze.
+
+## Jump to source (built)
+
+**Source** on any card opens the passage it came from, with the quoted evidence highlighted.
+`lib/source.ts` holds the lookup: a normalized copy of the text with an index map back to
+the original, so a model's quote still matches across differences in whitespace, case and
+punctuation, while the passage is cut from the original. Kept apart from `lib/regenerate.ts`
+because the page needs it too — this is a local lookup against the deck's stored text, not a
+server round trip — and regenerate reaches for the model, which cannot go into a client
+bundle. A card whose quote cannot be found shows the opening of the material and says so,
+rather than pretending.
+
+## Speed (built)
+
+Three separate things, all in service of not making someone wait for work already done.
+
+- **A whole run is cached** by content hash (`lib/cache.ts`). The key is the source text plus
+  every setting that changes the output — scope, provider, model, pipeline, style,
+  difficulty, chunk size — so a hit cannot be wrong. Measured at 16s → 0s on a repeat. In
+  memory, not on disk: losing it to a restart costs one regeneration, where a stale file
+  would cost trust in the results.
+- **Sections run in parallel on hosted providers**, four at a time; Ollama stays at one,
+  because it serializes per model anyway — 1081s concurrently against 439s sequentially, from
+  the ensemble benchmark. They are *merged* in section order however they finish: dedupe
+  keeps the first card it sees, so letting completion order decide would make the same
+  document give different decks on different days. `test/stream.test.mjs` runs sections that
+  finish backwards and asserts the deck is identical to the sequential one.
+- **Sections are cached individually too**, so a run that died on section nine pays only for
+  section nine. There is no "where was I" bookkeeping: the key is the section's own text, so
+  a document edited in the middle reruns only what changed.
+
+## Input coverage (built)
+
+Everything becomes the same text in the end; only the way in differs.
+
+- **Several files, one deck.** "Everything for this exam" is the natural unit. Each file is
+  extracted, headed with its filename so the outline stays navigable and the model can tell
+  where one document ends, then merged before chunking.
+- **A link.** Fetched and stripped to text. Only public http(s), and `isPrivateHost` refuses
+  loopback, the RFC1918 ranges, carrier-grade NAT and `169.254.169.254` — a server that will
+  fetch any address its client names is a way into whatever else that server can reach, which
+  on a hosted deploy means cloud metadata.
+- **A YouTube link** fetches the video's captions rather than the page, which is a shell.
+  English is requested explicitly: left to itself the library takes whichever caption track
+  is listed first, and on a popular talk that is as likely to be a translation — an English
+  lecture coming back in Arabic is worse than no transcript, because nothing downstream would
+  notice. Auto-captions have no sentence breaks, so the stream is re-wrapped into blocks the
+  paragraph chunker can actually split on.
+- **A scanned PDF.** No text layer used to be a hard refusal, and photocopied readers are
+  exactly what students have. The pages are now rasterised (`unpdf` with `@napi-rs/canvas`)
+  and read by the vision model the app already supports — rather than adding `tesseract.js`
+  as a second OCR engine beside a vision model that is already installed and already tested.
+  Capped at 12 pages, because a scanned page is a large image and a local model will crawl.
+- **A recording.** `whisper-cli` locally, with `ffmpeg` to convert to the 16kHz mono WAV it
+  insists on. Both are looked up rather than bundled — the same bargain Ollama asks for — and
+  a missing one is reported as the command to install it. `WHISPER_MODEL` points at the model
+  file. Audio is detected by extension, because the container bytes say nothing about whether
+  there is speech inside.
+
+`@napi-rs/canvas` is a native binding, so `next.config.ts` lists it under
+`serverExternalPackages`; webpack has no loader for a `.node` binary and fails the build
+trying to bundle one.
 
 ## Anki export (built)
 

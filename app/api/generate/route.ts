@@ -4,6 +4,9 @@ import {
   chunkText,
   fileToSource,
   MAX_BYTES,
+  urlToSource,
+  youtubeId,
+  youtubeToSource,
   removeRepeatedLines,
   repeatedLines,
   type Source,
@@ -11,6 +14,9 @@ import {
 import { completeText, resolveKey, type LlmConfig } from "@/lib/llm";
 import { PROVIDERS, isProviderId } from "@/lib/providers";
 import { pipelineFor, type Progress } from "@/lib/pipelines";
+import { isCardStyle, isDifficulty, type CardStyle, type Difficulty } from "@/lib/style";
+import { cacheKey, chunkKey, getCached, getChunk, putCached, putChunk } from "@/lib/cache";
+import { concurrencyFor } from "@/lib/pipelines";
 import { buildOutline, findScope, tableOfContents } from "@/lib/outline";
 import type { Card } from "@/lib/duplex";
 
@@ -56,6 +62,8 @@ export async function POST(req: Request) {
   let scopeRequest = "";
   let pipelineId = "";
   let chunkOverride = 0;
+  let style: CardStyle = "definition";
+  let difficulty: Difficulty = "intro";
 
   try {
     const form = await req.formData();
@@ -63,6 +71,10 @@ export async function POST(req: Request) {
     const text = String(form.get("text") ?? "").trim();
     scopeRequest = String(form.get("scope") ?? "").trim();
     pipelineId = String(form.get("pipeline") ?? "").trim();
+    const wantedStyle = String(form.get("style") ?? "");
+    if (isCardStyle(wantedStyle)) style = wantedStyle;
+    const wantedDifficulty = String(form.get("difficulty") ?? "");
+    if (isDifficulty(wantedDifficulty)) difficulty = wantedDifficulty;
     // Smaller chunks suit a small model, and let the benchmark reproduce the
     // cross-section context loss that long documents cause.
     const requested = Number(form.get("chunkChars"));
@@ -81,18 +93,51 @@ export async function POST(req: Request) {
       baseUrl: String(form.get("baseUrl") ?? "").trim() || undefined,
     };
 
-    if (file instanceof File && file.size > 0) {
-      if (file.size > MAX_BYTES) {
-        return NextResponse.json(
-          { error: `"${file.name}" is over the ${MAX_BYTES / 1024 / 1024}MB limit.` },
-          { status: 413 }
-        );
+    const files = form.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+    const url = String(form.get("url") ?? "").trim();
+
+    if (files.length) {
+      for (const f of files) {
+        if (f.size > MAX_BYTES) {
+          return NextResponse.json(
+            { error: `"${f.name}" is over the ${MAX_BYTES / 1024 / 1024}MB limit.` },
+            { status: 413 }
+          );
+        }
       }
-      source = await fileToSource(file);
+      // "Everything for this exam" is the natural unit, not one file. Images
+      // still go one at a time: each needs its own vision pass, and mixing a
+      // transcription into a text merge would lose which page it came from.
+      if (files.length === 1) {
+        source = await fileToSource(files[0]);
+      } else {
+        const parts: string[] = [];
+        const pages: string[] = [];
+        for (const f of files) {
+          const one = await fileToSource(f);
+          if (one.kind !== "text") {
+            return NextResponse.json(
+              {
+                error: `"${f.name}" has to be read by a vision model, which happens one file at a time — upload it on its own.`,
+              },
+              { status: 400 }
+            );
+          }
+          // A heading per file keeps the outline navigable and tells the model
+          // where one document ends and the next begins.
+          parts.push(`## ${f.name}\n\n${one.text}`);
+          pages.push(...one.pages);
+        }
+        source = { kind: "text", text: parts.join("\n\n"), pages };
+      }
+    } else if (url) {
+      // A YouTube link is a transcript, not a page: the page itself is a shell.
+      const video = youtubeId(url);
+      source = video ? await youtubeToSource(video) : await urlToSource(url);
     } else if (text) {
       source = { kind: "text", text, pages: [text] };
     } else {
-      return NextResponse.json({ error: "Add a file or some text first." }, { status: 400 });
+      return NextResponse.json({ error: "Add a file, a link, or some text first." }, { status: 400 });
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Couldn't read that file.";
@@ -101,6 +146,8 @@ export async function POST(req: Request) {
 
   // Narrow a big document to the requested part before anything reaches a model.
   let scopeLabel: string | null = null;
+  // A scan has no text to outline yet; it is transcribed inside the stream, and
+  // the length guard below applies to what comes out of that.
   if (source.kind === "text") {
     const outline = buildOutline(source.pages);
 
@@ -160,6 +207,31 @@ export async function POST(req: Request) {
         // An image has no text to check a quote against, so read it out first and then
         // run the same grounded pipeline everything else goes through.
         let material = source;
+        if (material.kind === "scan") {
+          const pages: string[] = [];
+          const total = material.dataUrls.length;
+          for (let i = 0; i < total; i++) {
+            send({ type: "progress", phase: "reading", done: i, total, cards: 0 });
+            const page = (
+              await completeText(cfg, TRANSCRIBE_SYSTEM, [
+                { type: "image_url", image_url: { url: material.dataUrls[i] } },
+                { type: "text", text: "Transcribe this page." },
+              ])
+            ).trim();
+            // A blank page in a scan is normal; a blank *every* page is not,
+            // and that is caught below.
+            if (page.length >= 20) pages.push(page);
+          }
+          if (!pages.length) {
+            send({
+              type: "error",
+              error: `"${material.name}" is a scan and "${cfg.model}" couldn't read any text on its pages. Use a vision model such as qwen2.5vl:7b.`,
+            });
+            return;
+          }
+          material = { kind: "text", text: pages.join("\n\n"), pages };
+        }
+
         if (material.kind === "image") {
           send({ type: "progress", phase: "reading", done: 0, total: 1, cards: 0 });
           const transcript = (
@@ -173,7 +245,9 @@ export async function POST(req: Request) {
               type: "error",
               error: `"${cfg.model}" couldn't read any text in that image. Use a vision model such as qwen2.5vl:7b, or upload the document itself.`,
             });
-            controller.close();
+            // The `finally` closes the stream; doing it here as well throws and
+            // drops the connection, so the reader sees a network error rather
+            // than the message above.
             return;
           }
           material = { kind: "text", text: transcript, pages: [transcript] };
@@ -196,6 +270,39 @@ export async function POST(req: Request) {
         // this is the only copy that survives.
         send({ type: "source", sourceText: body });
 
+        // An unchanged document with unchanged settings is the same deck, and
+        // the model already spent the minutes once.
+        const key = cacheKey({
+          text: body,
+          scope: scopeLabel ?? "",
+          provider: cfg.provider,
+          model: cfg.model,
+          pipeline: pipelineFor(pipelineId).id,
+          style,
+          difficulty,
+          chunkChars: chunkOverride || PROVIDERS[cfg.provider].chunkChars,
+        });
+        const cached = getCached(key);
+        if (cached) {
+          // Replay the messages a real run sends, so the page cannot tell the
+          // difference beyond the speed.
+          send({ type: "cards", cards: cached.cards });
+          send({
+            type: "result",
+            cards: cached.cards,
+            dropped: cached.dropped,
+            fixed: cached.fixed,
+            duplicates: cached.duplicates,
+            scope: cached.scopeLabel,
+            style,
+            cached: true,
+            pipeline: pipelineFor(pipelineId).id,
+          });
+          // No close here: the `finally` below owns that, and closing twice
+          // throws inside the stream and drops the connection.
+          return;
+        }
+
         const pipeline = pipelineFor(pipelineId);
         const result = await pipeline.run({
           cfg,
@@ -203,6 +310,14 @@ export async function POST(req: Request) {
           context,
           glossary,
           maxCards: MAX_CARDS,
+          style,
+          difficulty,
+          concurrency: concurrencyFor(cfg.provider),
+          // Finishing an interrupted run rather than starting it again.
+          sectionCache: {
+            get: (chunk) => getChunk(chunkKey(key, chunk)),
+            put: (chunk, result) => putChunk(chunkKey(key, chunk), result),
+          },
           onProgress: (p: Progress) => send({ type: "progress", ...p }),
           // Sent as each section lands so the page can fill in while the rest
           // of the run continues. The final `result` repeats the whole deck.
@@ -222,6 +337,14 @@ export async function POST(req: Request) {
                 : "Couldn't find anything to make flashcards from in that.",
           });
         } else {
+          putCached(key, {
+            cards,
+            sourceText: body,
+            scopeLabel,
+            dropped,
+            fixed,
+            duplicates,
+          });
           send({
             type: "result",
             cards,
@@ -229,6 +352,7 @@ export async function POST(req: Request) {
             fixed,
             duplicates,
             scope: scopeLabel,
+            style,
             pipeline: pipelineFor(pipelineId).id,
           });
         }
