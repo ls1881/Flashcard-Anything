@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import JSZip from "jszip";
-import { toAnkiCloze, type CardStyle } from "./style";
+import type { CardStyle } from "./style";
 import type { Card } from "./duplex";
 
 /**
@@ -42,17 +42,6 @@ const CSS = `.card {
 
 const FRONT_TEMPLATE = `<div class="term">{{Term}}</div>`;
 
-/**
- * Anki's cloze note type is a different thing from a two-sided note: one field
- * of text with `{{c1::...}}` markers, and `type: 1` on the model so Anki
- * generates a card per marker. Exporting a fill-in-the-blank deck as a Basic
- * note would hand the reader a front reading "... _____ ..." with the answer on
- * the back — studiable, but not what Anki does with cloze, and it would not
- * survive them editing it.
- */
-const CLOZE_FRONT = `{{cloze:Text}}`;
-const CLOZE_BACK = `{{cloze:Text}}
-{{#Source}}<div class="source">{{Source}}</div>{{/Source}}`;
 const BACK_TEMPLATE = `{{FrontSide}}
 
 <hr id=answer>
@@ -162,8 +151,7 @@ CREATE INDEX ix_revlog_usn ON revlog (usn);
 CREATE INDEX ix_notes_csum ON notes (csum);
 `;
 
-function modelsJson(name: string, mod: number, style: CardStyle): string {
-  const cloze = style === "cloze";
+function modelsJson(name: string, mod: number): string {
   const field = (fieldName: string, ord: number, size = 20) =>
     ({ name: fieldName, ord, sticky: false, rtl: false, font: "Arial", size, media: [] });
 
@@ -171,18 +159,17 @@ function modelsJson(name: string, mod: number, style: CardStyle): string {
     [String(MODEL_ID)]: {
       id: MODEL_ID,
       name: `${name} — Flashcard Anything`,
-      // 1 marks a cloze note type; Anki generates one card per {{c1::}} marker.
-      type: cloze ? 1 : 0,
+      type: 0,
       mod,
       usn: -1,
       sortf: 0,
       did: DECK_ID,
       tmpls: [
         {
-          name: cloze ? "Cloze" : "Card 1",
+          name: "Card 1",
           ord: 0,
-          qfmt: cloze ? CLOZE_FRONT : FRONT_TEMPLATE,
-          afmt: cloze ? CLOZE_BACK : BACK_TEMPLATE,
+          qfmt: FRONT_TEMPLATE,
+          afmt: BACK_TEMPLATE,
           bqfmt: "",
           bafmt: "",
           did: null,
@@ -190,9 +177,7 @@ function modelsJson(name: string, mod: number, style: CardStyle): string {
           bsize: 0,
         },
       ],
-      flds: cloze
-        ? [field("Text", 0), field("Source", 1, 14)]
-        : [field("Term", 0), field("Definition", 1), field("Source", 2, 14)],
+      flds: [field("Term", 0), field("Definition", 1), field("Source", 2, 14)],
       css: CSS,
       latexPre:
         "\\documentclass[12pt]{article}\n\\special{papersize=3in,5in}\n" +
@@ -201,9 +186,8 @@ function modelsJson(name: string, mod: number, style: CardStyle): string {
       latexPost: "\\end{document}",
       latexsvg: false,
       // Which fields must be non-empty for the card to be generated. Anki
-      // refuses to build cards for a note type without this. A cloze model's
-      // cards come from its markers instead, so the list is empty.
-      req: cloze ? [] : [[0, "any", [0]]],
+      // refuses to build cards for a note type without this.
+      req: [[0, "any", [0]]],
       tags: [],
       vers: [],
     },
@@ -251,8 +235,6 @@ export type AnkiDeckInput = {
   deckKey: string;
   /** Shown on the back of each card, and added as a tag. */
   source?: string | null;
-  /** A cloze deck becomes cloze notes; everything else is a two-sided note. */
-  style?: CardStyle;
   now?: number;
 };
 
@@ -263,16 +245,13 @@ export function buildRows(input: AnkiDeckInput) {
   const sourceText = (input.source ?? "").trim();
   const tags = ` flashcard-anything${sourceText ? ` ${toAnkiTag(sourceText)}` : ""} `;
 
-  const cloze = input.style === "cloze";
   const notes = input.cards.map((card, i) => {
     const term = card.term.trim();
-    const fields = cloze
-      ? [toAnkiHtml(toAnkiCloze(card)), sourceText ? toAnkiHtml(sourceText) : ""]
-      : [
-          toAnkiHtml(term),
-          toAnkiHtml(card.definition.trim()),
-          sourceText ? toAnkiHtml(sourceText) : "",
-        ];
+    const fields = [
+      toAnkiHtml(term),
+      toAnkiHtml(card.definition.trim()),
+      sourceText ? toAnkiHtml(sourceText) : "",
+    ];
     return {
       // Unique and stable within the file; Anki rewrites ids on import anyway.
       id: now + i,
@@ -337,7 +316,7 @@ export async function buildApkg(input: AnkiDeckInput): Promise<Uint8Array> {
         now,
         now,
         CONF_JSON,
-        modelsJson(deckName, seconds, input.style ?? "definition"),
+        modelsJson(deckName, seconds),
         // Anki's deck tree uses \x1f for nesting; a literal one in the name
         // would silently create a subdeck.
         decksJson(deckName.replace(/\x1f/g, " "), seconds),

@@ -557,18 +557,12 @@ select {
   transform: rotateY(180deg);
 }
 
-/* A cloze or question front is a sentence, not a 1-5 word term, so the type that
-   suits a term buries it. */
-.flip.style-cloze .face-front,
+/* A question front is a sentence, not a 1-5 word term, so the type that suits a
+   term buries it. */
 .flip.style-question .face-front {
   font-size: 15px;
   font-weight: 550;
   line-height: 1.4;
-}
-
-.flip.style-cloze .face-back {
-  font-size: 20px;
-  font-weight: 650;
 }
 
 .style-row {
@@ -897,24 +891,13 @@ select {
   line-height: 1.3;
 }
 
-/* A cloze front carries a whole sentence; the answer on the back is short. */
-.sheet-style-cloze .cell-front,
+/* A question front carries a whole sentence, not a term. */
 .sheet-style-question .cell-front {
   font-size: 13pt;
   font-weight: 550;
   line-height: 1.35;
 }
 
-.sheet-style-cloze .cell-back {
-  font-size: 17pt;
-  font-weight: 650;
-}
-
-.sheet-business.sheet-style-cloze .cell-front,
 .sheet-business.sheet-style-question .cell-front {
   font-size: 8.5pt;
-}
-
-.sheet-business.sheet-style-cloze .cell-back {
-  font-size: 11pt;
 }

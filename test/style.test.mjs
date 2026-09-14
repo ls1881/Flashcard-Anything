@@ -1,6 +1,6 @@
 #!/usr/bin/env node --experimental-strip-types
 // Run: npm test
-import { shapeCard, toAnkiCloze, isCardStyle, isDifficulty, CLOZE_BLANK, CARD_STYLES, DIFFICULTIES }
+import { shapeCard, isCardStyle, isDifficulty, CARD_STYLES, DIFFICULTIES }
   from "../lib/style.ts";
 import { harvest, writerSystem, concurrencyFor } from "../lib/pipelines.ts";
 import { passageFor, locateEvidence, sourceWindow } from "../lib/source.ts";
@@ -17,9 +17,11 @@ const check = (label, got, want) => {
 const card = (term, definition, evidence = "e") => ({ term, definition, evidence });
 
 console.log("the styles and levels are what the UI offers:");
-check("three card styles", CARD_STYLES.map((s) => s.id), ["definition", "question", "cloze"]);
+check("two card styles", CARD_STYLES.map((s) => s.id), ["definition", "question"]);
 check("two levels", DIFFICULTIES.map((d) => d.id), ["intro", "exam"]);
-check("ids are recognised", [isCardStyle("cloze"), isCardStyle("haiku")], [true, false]);
+check("ids are recognised", [isCardStyle("question"), isCardStyle("haiku")], [true, false]);
+check("fill in the blank is gone, and reads as an unknown style now",
+  isCardStyle("cloze"), false);
 check("levels too", [isDifficulty("exam"), isDifficulty("brutal")], [true, false]);
 
 console.log("\ndefinition cards pass through untouched:");
@@ -37,22 +39,6 @@ check("one already asked is left alone",
   shapeCard(card("What is mitosis?", "Division."), "question").term, "What is mitosis?");
 check("an empty front is dropped", shapeCard(card("  ", "x"), "question"), null);
 
-console.log("\na cloze card has to have exactly one blank:");
-const cloze = shapeCard(card("Glycolysis yields a net gain of ___ ATP.", "two"), "cloze");
-check("the blank is normalised to five underscores",
-  cloze.term, "Glycolysis yields a net gain of _____ ATP.");
-check("the answer is the removed text", cloze.definition, "two");
-check("a card with no blank is dropped",
-  shapeCard(card("Glycolysis yields two ATP.", "two"), "cloze"), null);
-check("a card with two blanks is dropped",
-  shapeCard(card("___ yields ___ ATP.", "Glycolysis"), "cloze"), null);
-check("a card with no answer is dropped",
-  shapeCard(card("Glycolysis yields ___ ATP.", "   "), "cloze"), null);
-check("an answer already visible in the sentence is dropped",
-  shapeCard(card("Glycolysis yields ___ ATP, a gain of two.", "two"), "cloze"), null);
-check("a one-or-two character answer is allowed to recur, since it cannot be spotted",
-  shapeCard(card("The pH fell to ___ in the assay.", "5"), "cloze") !== null, true);
-
 console.log("\nharvesting applies the shape the run asked for:");
 const raw = { cards: [
   { term: "What is mitosis", definition: "Nuclear division.", evidence: "mitosis is nuclear division" },
@@ -61,35 +47,26 @@ const raw = { cards: [
 check("question style fixes the punctuation",
   harvest(raw, null, "question").cards.map((c) => c.term),
   ["What is mitosis?", "Meiosis?"]);
-check("cloze style drops both, since neither has a blank",
-  harvest(raw, null, "cloze").cards.length, 0);
-check("and counts them as dropped", harvest(raw, null, "cloze").dropped, 2);
 check("definition style keeps them as written",
   harvest(raw, null, "definition").cards.map((c) => c.term), ["What is mitosis", "Meiosis"]);
 check("the default is definition style", harvest(raw, null).cards.length, 2);
 
 console.log("\nthe writer prompt changes with the style and the level:");
 const defIntro = writerSystem("definition", "intro");
-const clozeExam = writerSystem("cloze", "exam");
-check("a cloze prompt asks for underscores", clozeExam.includes("_____"), true);
-check("a definition prompt does not", defIntro.includes("_____"), false);
-check("a question prompt asks for a question mark",
-  writerSystem("question", "intro").includes("question mark"), true);
+const questionExam = writerSystem("question", "exam");
+check("a question prompt asks for a question mark", questionExam.includes("question mark"), true);
+check("a definition prompt does not", defIntro.includes("question mark"), false);
+check("no prompt asks for underscores any more",
+  [defIntro, questionExam, writerSystem("question", "intro")]
+    .some((s) => s.includes("_____")), false);
 check("the grounding rule survives every combination",
-  [defIntro, clozeExam, writerSystem("question", "exam")]
+  [defIntro, questionExam, writerSystem("definition", "exam")]
     .every((s) => s.includes("THE GROUNDING RULE")), true);
 check("exam level asks for mechanisms and exceptions",
-  clozeExam.includes("conditions and exceptions"), true);
+  questionExam.includes("conditions and exceptions"), true);
 check("introductory level does not", defIntro.includes("conditions and exceptions"), false);
 check("every prompt still demands JSON only",
-  [defIntro, clozeExam].every((s) => s.includes("JSON only")), true);
-
-console.log("\ncloze cards become Anki's own cloze markup:");
-check("the blank is filled with a c1 marker",
-  toAnkiCloze(card("Glycolysis yields a net gain of _____ ATP.", "two")),
-  "Glycolysis yields a net gain of {{c1::two}} ATP.");
-check("a card with no blank is left alone",
-  toAnkiCloze(card("Mitosis", "Nuclear division.")), "Mitosis");
+  [defIntro, questionExam].every((s) => s.includes("JSON only")), true);
 
 console.log("\nparallelism is chosen by provider, not hoped for:");
 check("ollama stays sequential, because it serializes anyway", concurrencyFor("ollama"), 1);
@@ -140,7 +117,7 @@ const k = cacheKey(base);
 check("the same inputs give the same key", cacheKey(base), k);
 for (const [field, value] of [
   ["text", "a different document"], ["scope", "chapter 3"], ["provider", "openai"],
-  ["model", "gpt-5"], ["pipeline", "ensemble"], ["style", "cloze"],
+  ["model", "gpt-5"], ["pipeline", "ensemble"], ["style", "question"],
   ["difficulty", "exam"], ["chunkChars", 4000],
 ]) {
   check(`changing ${field} changes the key`, cacheKey({ ...base, [field]: value }) !== k, true);
@@ -183,7 +160,7 @@ putChunk(ck, { cards: [card("A", "a")], dropped: 0, fixed: 0 });
 check("a finished section comes back", getChunk(ck).cards.length, 1);
 check("a different section is a separate entry", getChunk(chunkKey(k, "section two text")), null);
 check("the same section under different settings is a separate entry",
-  getChunk(chunkKey(cacheKey({ ...base, style: "cloze" }), "section one text")), null);
+  getChunk(chunkKey(cacheKey({ ...base, style: "question" }), "section one text")), null);
 check("clearing empties both caches", (() => { clearCache(); return [cacheSize(), getChunk(ck)]; })(),
   [0, null]);
 

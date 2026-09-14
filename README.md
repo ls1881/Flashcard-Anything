@@ -79,15 +79,13 @@ short deck and a note saying it stopped early, rather than nothing.
 | --- | --- | --- |
 | **Definitions** | a term, 1–5 words | what it means |
 | **Questions** | a question the source answers | the answer |
-| **Fill in the blank** | a sentence with the key part removed | the missing text |
 
 And a **Level**: **Introductory** goes for the core vocabulary and the headline figures;
 **Exam level** goes for mechanisms, conditions, exceptions, distinctions between things that
 are easily confused, and exact figures.
 
-Whatever you pick, every card still has to quote your source to survive — the accuracy
-checks don't change with the style. Fill-in-the-blank decks export as **real Anki cloze
-notes**, not a two-sided card with an underscore on it.
+Either way, every card still has to quote your source to survive — the accuracy checks don't
+change with the style.
 
 ## Where a card came from
 

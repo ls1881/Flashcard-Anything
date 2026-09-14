@@ -39,9 +39,9 @@ export type Deck = DeckMeta & {
    */
   sourceText: string | null;
   /**
-   * Which shape the cards were written in. Cloze decks export to Anki's own
-   * cloze note type rather than a term/definition pair, so a deck has to
-   * remember what it is.
+   * Which shape the cards were written in. A question front is a sentence
+   * rather than a term, and is set in smaller type on screen and on paper, so a
+   * deck has to remember what it is.
    */
   style: CardStyle;
 };
@@ -209,7 +209,9 @@ export function normalizeDeck(raw: unknown): Deck | null {
     model,
     cards,
     sourceText: typeof d.sourceText === "string" && d.sourceText ? d.sourceText : null,
-    // Decks predating card styles are all definition decks.
+    // Decks predating card styles are definition decks, and so are the
+    // fill-in-the-blank decks made while that style briefly existed: their
+    // cards still read, they just lose the styling that went with it.
     style: isCardStyle(String(d.style)) ? (d.style as CardStyle) : "definition",
     // Recomputed, never trusted: a stale count would misreport the list.
     count: cards.length,

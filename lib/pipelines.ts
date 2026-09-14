@@ -80,14 +80,6 @@ Rules for every card:
 - One card per distinct idea worth knowing. Skip title slides, agendas, page numbers, and citations.
 - No two questions that test the same fact.`,
 
-  cloze: `You are writing CLOZE DELETION cards, not definitions.
-
-Rules for every card:
-- "term" is a sentence from the material with exactly one important piece removed and replaced by five underscores: _____. Keep it to one sentence, under 30 words. The sentence must still make sense and must give enough context to be answerable.
-- "definition" is exactly the text that was removed — usually one to five words, a figure, a name, or a short phrase. Nothing else: no explanation, no full sentence, no restatement.
-- Blank out the thing worth remembering: a quantity, a name, a mechanism, a defining property. Never blank out "the" or "and" or a word that is guessable from grammar alone.
-- Exactly one _____ per card, and the removed text must not appear elsewhere in the same sentence.
-- One card per distinct fact. No two cards blanking the same fact.`,
 };
 
 const DIFFICULTY_RULES: Record<Difficulty, string> = {

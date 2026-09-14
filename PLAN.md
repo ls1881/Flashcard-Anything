@@ -132,21 +132,22 @@ suits a first reading and an exam differently. Both are prompt-level choices, in
 
 - **Definitions** — the original: a term on the front, what it means on the back.
 - **Questions** — a question the source answers. Held to actually ending in a question mark.
-- **Fill in the blank** — a sentence with one span removed. Held to exactly one blank, a
-  non-empty answer, and an answer that does not also sit visibly in the sentence.
 - **Introductory** against **Exam level** — core vocabulary and headline figures, against
   mechanisms, conditions, exceptions and exact figures.
 
 Nothing below the prompt changed. The evidence check, the deduper and the card cap treat a
-cloze deck exactly as a definition deck, so a fill-in-the-blank card still has to quote its
-source. `shapeCard` discards what the style promises but the model didn't deliver:
-punctuation is repaired, a missing blank is not, because inventing where the gap goes would
-be making the card up.
+question deck exactly as a definition deck, so a question card still has to quote its source.
+`shapeCard` holds a card to the shape its style promised: a question that arrived without a
+question mark gets one. Only punctuation is repaired — anything needing the card's meaning
+changed to fit would be making the card up.
 
-A cloze deck exports to Anki's **own** cloze note type — one `Text` field with `{{c1::…}}`
-and `type: 1` on the model, so Anki generates the card from the marker. A two-sided note
-with an underscore on the front would be studiable but would not survive the reader editing
-it, and is not what Anki means by cloze.
+**A fill-in-the-blank style was built and then removed.** It wrote a sentence with one span
+blanked, and exported to Anki's own cloze note type; the machinery worked, and it is in the
+history if it is ever wanted back. It came out because the cards it produced were harder to
+study from than the format promised — a blanked sentence tests recall of one word in a
+context you are also being shown, which is a narrower thing than it looks. A deck saved
+while it existed still opens and still reads; `normalizeDeck` no longer recognises the style,
+so it is treated as a definition deck and loses only the type sizing that went with it.
 
 ## Jump to source (built)
 

@@ -12,7 +12,7 @@ The app was strongest at *generation* and weakest at *everything after generatio
 is closed: decks survive a reload, arrive while the run is still going, can be corrected a
 card at a time, and leave as an Anki package that imports into the app people actually study
 in. The breadth that was listed under it — scans, recordings, links, several files at once,
-cloze and question cards, caching — is built too.
+question cards, caching — is built too.
 
 What is left is not a hole so much as a list of things nobody has asked for yet. The one
 thing genuinely missing is sync, and that needs auth, which needs a reason.
@@ -111,15 +111,17 @@ measuring the result — A4 pages come out 8.26 × 11.69in, and an index card is
 
 ### ~~Card quality~~ — built
 
-- ~~**Cloze deletion**~~ — a **Fill in the blank** style. Cloze decks export to Anki's own
-  cloze note type (`{{c1::…}}`, model `type: 1`), not a two-sided note dressed up as one.
+- ~~**Cloze deletion**~~ — **built, then removed.** It worked, down to exporting real Anki
+  cloze notes, but the cards were harder to study from than the format promises: blanking one
+  word in a sentence you are also being shown tests something narrower than recall. Kept in
+  the history rather than the app.
 - ~~**Question-style cards**~~ — a **Questions** style, held to actually being a question.
 - ~~**Difficulty setting**~~ — **Introductory** against **Exam level**, as a prompt section.
 - ~~**Jump to source**~~ — **Source** on any card opens the passage it came from, with its
   quoted evidence highlighted. A local lookup against the deck's stored text, no round trip.
 
-The pipeline, the evidence check and the deduper are untouched by any of it: a cloze deck is
-verified against its source exactly as a definition deck is.
+The pipeline, the evidence check and the deduper are untouched by any of it: a question deck
+is verified against its source exactly as a definition deck is.
 
 ### ~~Performance~~ — built
 

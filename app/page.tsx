@@ -6,7 +6,6 @@ import SettingsPanel, { baseUrlFor, keyFor, modelFor } from "@/components/Settin
 import { DEFAULT_SETTINGS, PROVIDERS, type Settings } from "@/lib/providers";
 import {
   CARD_STYLES,
-  CLOZE_BLANK,
   DIFFICULTIES,
   isCardStyle,
   isDifficulty,
@@ -472,7 +471,6 @@ export default function Home() {
           cards: deck.cards,
           deckKey: deck.id,
           source: deck.source,
-          style: deck.style,
         }),
       });
       if (!res.ok) {

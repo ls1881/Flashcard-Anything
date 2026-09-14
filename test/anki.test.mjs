@@ -74,7 +74,7 @@ const models = JSON.parse(col.models);
 const model = Object.values(models)[0];
 check("exactly one note type", Object.keys(models).length, 1);
 check("keyed by its own id", Object.keys(models)[0], String(model.id));
-check("a standard note type, not cloze", model.type, 0);
+check("a standard two-sided note type", model.type, 0);
 check("three fields", model.flds.map((f) => f.name), ["Term", "Definition", "Source"]);
 check("fields are ordered 0,1,2", model.flds.map((f) => f.ord), [0, 1, 2]);
 check("the sort field is the term", model.sortf, 0);

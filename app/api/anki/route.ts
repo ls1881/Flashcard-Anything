@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { buildApkg } from "@/lib/anki";
-import { isCardStyle } from "@/lib/style";
 import type { Card } from "@/lib/duplex";
 
 export const runtime = "nodejs";
@@ -16,7 +15,6 @@ export async function POST(req: Request) {
     cards?: Card[];
     deckKey?: string;
     source?: string | null;
-    style?: string;
   };
   try {
     body = await req.json();
@@ -43,7 +41,6 @@ export async function POST(req: Request) {
       // only has to be stable for this deck, not globally unique.
       deckKey: String(body.deckKey ?? "").trim() || String(body.name ?? "deck"),
       source: typeof body.source === "string" ? body.source : null,
-      style: isCardStyle(String(body.style)) ? (body.style as never) : "definition",
     });
     return new Response(bytes as unknown as BodyInit, {
       headers: {
