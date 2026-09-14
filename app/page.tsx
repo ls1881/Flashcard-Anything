@@ -4,7 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import PrintSheets from "@/components/PrintSheets";
 import SettingsPanel, { baseUrlFor, keyFor, modelFor } from "@/components/Settings";
 import { DEFAULT_SETTINGS, PROVIDERS, type Settings } from "@/lib/providers";
-import type { Card, FlipEdge } from "@/lib/duplex";
+import {
+  CARD_SIZE_LIST,
+  PAPER_LIST,
+  isCardSizeId,
+  isPaperId,
+  layoutFor,
+  type Card,
+  type FlipEdge,
+} from "@/lib/duplex";
 import {
   PASTED,
   ankiFileName,
@@ -50,7 +58,6 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [over, setOver] = useState(false);
-  const [flip, setFlip] = useState<FlipEdge>("long");
   const [flipped, setFlipped] = useState<Set<number>>(new Set());
   const [progress, setProgress] = useState<{
     phase: "reading" | "checking";
@@ -72,6 +79,10 @@ export default function Home() {
         const stored = JSON.parse(raw);
         // Settings saved before the theme was reduced to two choices may say "system".
         if (stored.theme !== "light" && stored.theme !== "dark") stored.theme = "light";
+        // Print setup arrived later, so an older store has none of it.
+        if (!isPaperId(String(stored.paper))) delete stored.paper;
+        if (!isCardSizeId(String(stored.cardSize))) delete stored.cardSize;
+        if (stored.flip !== "long" && stored.flip !== "short") delete stored.flip;
         setSettings({ ...DEFAULT_SETTINGS, ...stored });
       }
     } catch {
@@ -450,6 +461,9 @@ export default function Home() {
     });
   }
 
+  const flip = settings.flip;
+  const layout = layoutFor(settings.paper, settings.cardSize);
+
   // Shared by the full-page loading panel and the live bar above streamed cards.
   const phaseLabel = progress
     ? `${progress.phase === "checking" ? "Checking accuracy" : "Reading"}${
@@ -501,13 +515,53 @@ export default function Home() {
                   {deck.scope ? `${deck.scope} · ` : ""}
                   {showing.length} flashcards
                 </span>
-                <label className="edge">
-                  Flip on
-                  <select value={flip} onChange={(e) => setFlip(e.target.value as FlipEdge)}>
-                    <option value="long">Long edge</option>
-                    <option value="short">Short edge</option>
-                  </select>
-                </label>
+                <div className="print-setup">
+                  <label className="edge">
+                    Paper
+                    <select
+                      value={settings.paper}
+                      onChange={(e) =>
+                        updateSettings({ ...settings, paper: e.target.value as typeof settings.paper })
+                      }
+                    >
+                      {PAPER_LIST.map((paper) => (
+                        <option key={paper.id} value={paper.id}>
+                          {paper.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="edge">
+                    Cards
+                    <select
+                      value={settings.cardSize}
+                      onChange={(e) =>
+                        updateSettings({
+                          ...settings,
+                          cardSize: e.target.value as typeof settings.cardSize,
+                        })
+                      }
+                    >
+                      {CARD_SIZE_LIST.map((size) => (
+                        <option key={size.id} value={size.id}>
+                          {size.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="edge">
+                    Flip on
+                    <select
+                      value={flip}
+                      onChange={(e) =>
+                        updateSettings({ ...settings, flip: e.target.value as FlipEdge })
+                      }
+                    >
+                      <option value="long">Long edge</option>
+                      <option value="short">Short edge</option>
+                    </select>
+                  </label>
+                </div>
                 <button className="ghost" onClick={() => window.print()}>
                   Print
                 </button>
@@ -615,8 +669,9 @@ export default function Home() {
           <p className="hint">
             {deck ? (
               <>
-                Click a card to flip it. Printing gives you double-sided pages — set your
-                printer to two-sided and match the flip edge above.
+                Click a card to flip it. Printing gives you {layout.perPage} card
+                {layout.perPage === 1 ? "" : "s"} per {layout.paper.label} sheet, double-sided
+                — set your printer to two-sided and match the flip edge above.
                 {unsaved
                   ? " This browser won't save decks, so export the JSON if you need to keep this one."
                   : " This deck is saved in this browser and will still be here after a reload."}
@@ -627,7 +682,7 @@ export default function Home() {
           </p>
         </div>
 
-        {deck && <PrintSheets cards={deck.cards} flip={flip} />}
+        {deck && <PrintSheets cards={deck.cards} flip={flip} layout={layout} />}
       </>
     );
   }

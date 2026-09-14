@@ -63,11 +63,26 @@ Verified against the real Anki library rather than against the docs — `npm run
 drives an actual collection through importing the file twice. See "Not planned" below; this
 is the export that makes not building a scheduler the right call.
 
-### 5. A4 and card-size options
+### ~~5. A4 and card-size options~~ — built
 
-The print layout is hardcoded to US Letter at six cards per sheet, which makes the feature
-unusable outside North America. A4 is close to a one-constant change; index-card and
-business-card sizes are a small extension of the same grid.
+~~The print layout is hardcoded to US Letter at six cards per sheet, which makes the feature
+unusable outside North America.~~ Paper (**US Letter** or **A4**) and card size (**6 per
+sheet**, **index card 5 × 3in**, **business card 3.5 × 2in**) are now separate choices, and
+the grid is whatever falls out of fitting one into the other — 4 index cards or 10 business
+cards to a sheet on either paper. Both are remembered, since which paper you own doesn't
+change between decks.
+
+It was not the one-constant change this predicted: the duplex arithmetic had the 2 × 3 grid
+baked into it, so `backSheetOrder` now takes the grid, and the sheet box moved out of the
+stylesheet into the layout. Verified by printing the page to PDF in a real browser and
+measuring the result — A4 pages come out 8.26 × 11.69in, and an index card is cut at exactly
+3 × 5in.
+
+### 6. More paper and card sizes
+
+The mechanism is now general — a paper is a width and a height, a card size is a width and a
+height, and everything else is computed — so A5, Legal, A6 index cards and the EU 85 × 55mm
+business card are entries in a table rather than new code. Left until someone wants one.
 
 ## Input coverage
 

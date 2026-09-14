@@ -31,8 +31,8 @@ Anki, which has one, along with the mobile apps and the sync this doesn't. See
 3. The chosen model turns each chunk into `{term, definition, evidence}` cards as structured
    JSON. The quoted evidence is verified in code, and duplicates are merged out. Each
    section's surviving cards are streamed to the page as they land.
-4. Cards are returned as a flip deck on screen, a double-sided print layout, an Anki `.apkg`,
-   and a JSON export.
+4. Cards are returned as a flip deck on screen, a double-sided print layout in the chosen
+   paper and card size, an Anki `.apkg`, and a JSON export.
 
 The card shape is `Card { term, definition, evidence? }` — deliberately small. A finished run
 is wrapped in a `Deck`, along with the text it was written from, and stored in IndexedDB; see
@@ -45,15 +45,45 @@ what exists and the reasoning behind it.
 
 ## Print layout (built)
 
-6 cards per US Letter sheet (2 cols × 3 rows, 3.75in × 3.333in each, 0.5in margins), each
-page emitted as a front sheet followed by its back sheet. The back sheet is reordered so
-every definition lands behind its own term once the paper flips:
+Each page is emitted as a front sheet followed by its back sheet. The back sheet is reordered
+so every definition lands behind its own term once the paper flips:
 
 - **Long edge** (rotates about the vertical axis) → mirror each row's columns.
 - **Short edge** (rotates about the horizontal axis) → reverse the row order.
 
-Both sides render into an identical fixed grid, so cut lines register on each side. Logic
-lives in `lib/duplex.ts`.
+Both sides render into an identical grid, so cut lines register on each side. Logic lives in
+`lib/duplex.ts`.
+
+**Paper and card size are separate choices**, and the grid is computed from them rather than
+written down. This used to be US Letter at six per sheet and nothing else, which made the
+whole feature useless outside North America.
+
+| | 6 per sheet | Index card 5 × 3in | Business card 3.5 × 2in |
+| --- | --- | --- | --- |
+| **US Letter** | 2 × 3 = 6 | 2 × 2 = 4 | 2 × 5 = 10 |
+| **A4** | 2 × 3 = 6 | 2 × 2 = 4 | 2 × 5 = 10 |
+
+Three decisions:
+
+- **Fixed sizes are physical, "6 per sheet" is not.** An index card is 3 × 5in on any paper,
+  because the point of asking for one is that it fits an index-card box. "6 per sheet" has no
+  size of its own — it divides the printable area, so it is 3.75 × 3.333in on Letter and
+  3.634 × 3.564in on A4.
+- **A fixed card is turned whichever way fits more.** A 5 × 3in card laid landscape on Letter
+  gives one per row and wastes half the page; turned portrait it gives four per sheet. Ties
+  keep the size as written, so a business card stays landscape at the familiar 10-up.
+- **The sheet box left the stylesheet.** Width, height and grid template are now inline styles
+  from the layout, and `@page { size: … }` is emitted by `PrintSheets` — a rule, so it cannot
+  be an inline style, and it has to change with the paper.
+
+The choices are stored in `Settings` alongside the flip edge: which paper you own is a
+property of where you live, not a decision to retake every print.
+
+`test/duplex.test.mjs` covers the fitting for all six combinations and checks the duplex
+arithmetic on grids other than 2 × 3 — a 2 × 5 sheet and a single-column one, where long-edge
+mirroring correctly changes nothing. That the geometry is *real* was checked by printing the
+page to PDF in a headless browser and measuring it: A4 pages come out 8.26 × 11.69in and an
+index-card cell measures exactly 3 × 5in.
 
 The same setting drives the on-screen deck, which used to always rotate about Y whatever the
 setting said.

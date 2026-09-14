@@ -144,13 +144,23 @@ returns an error telling you to name one, instead of quietly making cards from p
 
 ## Printing double-sided
 
-The print layout is 6 cards per sheet (2 × 3 on US Letter), and each page prints as a
-front sheet followed by its matching back sheet.
+Each page prints as a front sheet followed by its matching back sheet.
 
-1. Hit **Print**, then turn on two-sided / duplex printing.
-2. Match the **Flip on** dropdown in the app to your printer's setting — **long edge**
-   (the common default) or **short edge**.
-3. Print, then cut along the dashed lines.
+1. Pick your **Paper** — US Letter or A4 — and a **Cards** size.
+2. Hit **Print**, then turn on two-sided / duplex printing.
+3. Match the **Flip on** dropdown to your printer's setting — **long edge** (the common
+   default) or **short edge**.
+4. Print, then cut along the dashed lines.
+
+| Cards | Size | Per sheet |
+| --- | --- | --- |
+| **6 per sheet** | fills the page | 6 |
+| **Index card** | 3 × 5 in | 4 |
+| **Business card** | 3.5 × 2 in | 10 |
+
+Index and business cards come out at exactly that size on either paper, so they fit the box
+or wallet you bought them for; **6 per sheet** has no fixed size and just divides the page.
+Your paper, card size and flip edge are remembered.
 
 The back sheet is reordered to compensate for the flip, so backs line up with fronts
 instead of ending up on the wrong card. Long edge mirrors each row left-to-right; short

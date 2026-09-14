@@ -1,3 +1,5 @@
+import type { CardSizeId, FlipEdge, PaperId } from "./duplex";
+
 /** How a provider's HTTP API is shaped. Almost everything speaks OpenAI's dialect. */
 export type ApiStyle = "openai" | "anthropic" | "ollama";
 
@@ -160,6 +162,14 @@ export type ThemeChoice = "light" | "dark";
 export type Settings = {
   provider: ProviderId;
   theme: ThemeChoice;
+  /**
+   * Print setup, remembered rather than asked every time: which paper you own
+   * is a property of where you live, and the flip edge is a property of your
+   * printer. Neither changes between decks.
+   */
+  paper: PaperId;
+  cardSize: CardSizeId;
+  flip: FlipEdge;
   /** Kept per provider so switching back and forth doesn't wipe a key. */
   keys: Partial<Record<ProviderId, string>>;
   models: Partial<Record<ProviderId, string>>;
@@ -169,6 +179,9 @@ export type Settings = {
 export const DEFAULT_SETTINGS: Settings = {
   provider: "ollama",
   theme: "light",
+  paper: "letter",
+  cardSize: "fit",
+  flip: "long",
   keys: {},
   models: {},
   baseUrls: {},

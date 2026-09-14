@@ -360,6 +360,15 @@ button:disabled {
   color: var(--error-ink);
 }
 
+/* The three print choices travel together, so they wrap as a group rather than
+   scattering across the bar. */
+.print-setup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .edge {
   display: flex;
   align-items: center;
@@ -716,10 +725,7 @@ select {
   display: none;
 }
 
-@page {
-  size: letter portrait;
-  margin: 0;
-}
+/* The real @page rule is emitted by PrintSheets, which knows the chosen paper. */
 
 @media print {
   .screen {
@@ -738,14 +744,11 @@ select {
   }
 }
 
-/* Both sides use the identical grid box, so a back cell lands exactly on its front. */
+/* Both sides use the identical grid box, so a back cell lands exactly on its
+   front. The box itself is set inline from the layout — it depends on the paper
+   and card size chosen at print time. */
 .sheet {
-  width: 8.5in;
-  height: 11in;
-  padding: 0.5in;
   display: grid;
-  grid-template-columns: repeat(2, 3.75in);
-  grid-template-rows: repeat(3, 3.3333in);
   break-after: page;
   page-break-after: always;
 }
@@ -776,4 +779,33 @@ select {
 .cell-back {
   font-size: 10.5pt;
   line-height: 1.45;
+}
+
+/* A business card is a fifth of the area of a sheet-filling card, so the type
+   that suits one buries the other. Scaled per size rather than per cell, since
+   every cell on a sheet is the same size. */
+.sheet-index .cell {
+  padding: 0.2in;
+}
+
+.sheet-index .cell-front {
+  font-size: 16pt;
+}
+
+.sheet-index .cell-back {
+  font-size: 9.5pt;
+}
+
+.sheet-business .cell {
+  padding: 0.13in;
+}
+
+.sheet-business .cell-front {
+  font-size: 12pt;
+  line-height: 1.15;
+}
+
+.sheet-business .cell-back {
+  font-size: 7.5pt;
+  line-height: 1.3;
 }
