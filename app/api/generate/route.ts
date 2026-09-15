@@ -35,6 +35,18 @@ export const maxDuration = 800;
 
 const MAX_CHUNKS = 16;
 
+/**
+ * The least text worth sending to a model. About two sentences: below this there
+ * is no card in there to find, and the failure would otherwise arrive as a
+ * complaint about the model rather than about the input.
+ */
+const MIN_SOURCE_CHARS = 120;
+
+/** Characters that aren't whitespace — the only honest measure of "how much text". */
+function textLength(text: string): number {
+  return text.replace(/\s+/g, "").length;
+}
+
 const TRANSCRIBE_SYSTEM = `You transcribe images. Reply with the transcription only — no preamble, no commentary.
 
 Copy out every word, heading, label, formula, and caption you can see, in reading order. Transcribe only — never summarize, explain, answer, or add anything that is not visibly written in the image.
@@ -159,6 +171,28 @@ export async function POST(req: Request) {
   // A scan has no text to outline yet; it is transcribed inside the stream, and
   // the length guard below applies to what comes out of that.
   if (source.kind === "text") {
+    // Too little to work with, caught before a model is asked. Without this a
+    // five-character paste still cost a round trip and came back as "every card
+    // the model produced was making things up — try a larger model", which
+    // blames the model for the reader's typo. The other inputs already have
+    // floors of their own (a page, a transcript, a recording); text and files
+    // had none.
+    // Measured on the pages rather than `source.text`, which carries a
+    // `Source document "name":` header that would flatter a two-character file
+    // into reporting twenty-seven.
+    const have = textLength(source.pages.join(""));
+    if (have < MIN_SOURCE_CHARS) {
+      return NextResponse.json(
+        {
+          error:
+            `There isn't enough text there to make flashcards from — ` +
+            `${have} character${have === 1 ? "" : "s"}, and it takes about ${MIN_SOURCE_CHARS}. ` +
+            `Paste a few paragraphs, or upload the document itself.`,
+        },
+        { status: 400 }
+      );
+    }
+
     const outline = buildOutline(source.pages);
 
     if (scopeRequest) {
@@ -191,7 +225,9 @@ export async function POST(req: Request) {
             error:
               `That document is too long to turn into one deck (${Math.round(
                 source.text.length / 1000
-              )}k characters across ${outline.pageCount} pages). Say which part you want — ` +
+              )}k characters across ${outline.pageCount} page${
+                outline.pageCount === 1 ? "" : "s"
+              }). Say which part you want — ` +
               (toc.length
                 ? `for example "${toc[Math.min(1, toc.length - 1)]}".`
                 : 'for example "pages 40-60".'),

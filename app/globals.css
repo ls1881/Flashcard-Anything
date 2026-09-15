@@ -832,6 +832,12 @@ select {
   opacity: 0.75;
 }
 
+/* Deliberately quiet: it has to be findable during a long run without competing
+   with the progress line for attention. */
+.loading .linkish {
+  margin-top: 18px;
+}
+
 /* ---------- print ---------- */
 
 .sheets {

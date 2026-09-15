@@ -167,6 +167,48 @@ like a document at the moment the decision was made and was empty two steps late
 rendered to pixels and wrapped with no text layer behind it — so nothing there can pass by
 accidentally reading text a real scan wouldn't have.
 
+### A pass over every path in the app — built
+
+Driven through a real browser rather than read: every control, every input kind, every error
+the app can reach. Most of it held. Seven things did not.
+
+**No way to stop a run.** The largest of them. Once **Make flashcards** was pressed the only
+exits were closing the tab or reloading, both of which threw away the cards already written —
+and with **Most** on a local model a run is minutes. There is now a **Stop** on both screens a
+run can be on: the loading panel, and the live bar once cards start arriving. Stopping with
+cards on screen keeps them, saves them as a real deck, and says so; stopping before any arrive
+just puts the form back, with what you typed still in it.
+
+**A library error quoted at the reader.** A damaged .docx gave `Corrupted zip: can't find end
+of central directory` — JSZip's words, true and useless. It now names the file and says to
+download it again.
+
+**Two settings were never checked.** `completeJson` — the path every card goes through —
+validated the API key and nothing else, though `requireConfig` beside it already checked the
+model and the base URL properly and `completeText` called it. So a Custom provider with no
+base URL failed as `Failed to parse URL from /chat/completions`, and a provider with no model
+chosen returned its raw 400 body. `completeJson` now makes the same check its neighbour does.
+
+**No floor on how little text you could submit.** Pasting five characters cost a model round
+trip and came back "every card the model produced was making things up — try a larger model",
+which blames the model for a typo. Links, videos and recordings all had floors of their own;
+text and files had none. 120 characters now, checked before anything is called.
+
+**"across 1 pages".**
+
+**"Settings", in four error messages, was not the name of anything.** The control said
+**Change**. It says **Settings**.
+
+**"Using Custom · " with nothing after it**, for the providers that ship no default model. It
+now says "no model chosen yet", which is also the first hint you get that something is missing.
+
+What held: every input kind and its refusal, the streaming view, flip, edit, AI rewrite, the
+source passage and its highlight, rename from both places, delete behind its confirm, both
+exports, the print layout across paper and card sizes, per-provider keys and models, theme,
+and reopening the last deck after a reload. The provider-failure messages in particular were
+already right — a stopped Ollama, a model that isn't pulled, a missing key, a rate limit all
+say what to do.
+
 ### How many cards — built
 
 **Fewest / Normal / Most**, beside **Cards as** and **Level**. Not a cap: a cap can only

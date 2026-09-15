@@ -8,7 +8,7 @@ can import and keep studying, and a double-sided print layout where every defini
 exactly behind its own term.
 
 Works with a **local model** (free, private, no key) or any **cloud provider**. Pick in the
-app under **Change** — no config files required.
+app under **Settings** — no config files required.
 
 | Provider | Key | Notes |
 | --- | --- | --- |
@@ -48,7 +48,7 @@ python3 -m venv /tmp/ankienv && /tmp/ankienv/bin/pip install anki
 ANKI_PYTHON=/tmp/ankienv/bin/python npm run test:anki
 ```
 
-That's the whole setup for local use. For OpenRouter or Anthropic, click **Change** in the
+That's the whole setup for local use. For OpenRouter or Anthropic, click **Settings** in the
 app and paste a key — it's stored in your browser only and never written to the repo. If
 you'd rather keep keys out of the browser, put `ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY`
 in `.env.local` and leave the field blank.
@@ -71,7 +71,9 @@ a rerun after a typo in the scope costs nothing. If a run dies partway, the sect
 finished are kept, and running it again only pays for the ones that didn't.
 
 If a run fails partway, the sections that already finished are kept and saved — you get a
-short deck and a note saying it stopped early, rather than nothing.
+short deck and a note saying it stopped early, rather than nothing. **Stop** does the same on
+purpose: the cards written so far are yours, and running the same material again picks up
+where it left off instead of paying for those sections twice.
 
 ## What kind of cards
 

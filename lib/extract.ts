@@ -531,14 +531,29 @@ function looksBinary(s: string): boolean {
 type Kind = "pdf" | "docx" | "pptx" | "epub" | "rtf" | "html" | "legacy-office" | "zip" | "text";
 
 /** Trust the bytes over the extension, so a mislabelled or extension-less file still works. */
-async function detectKind(buf: Buffer, lower: string): Promise<{ kind: Kind; zip?: JSZip }> {
+async function detectKind(
+  buf: Buffer,
+  lower: string,
+  name: string
+): Promise<{ kind: Kind; zip?: JSZip }> {
   if (buf.subarray(0, 5).toString("latin1") === "%PDF-") return { kind: "pdf" };
   if (buf.subarray(0, 5).toString("latin1") === "{\\rtf") return { kind: "rtf" };
   // OLE2 compound file: legacy .doc/.ppt/.xls
   if (buf.subarray(0, 8).toString("hex") === "d0cf11e0a1b11ae1") return { kind: "legacy-office" };
 
   if (buf.subarray(0, 2).toString("latin1") === "PK") {
-    const zip = await JSZip.loadAsync(buf);
+    // A .docx that came down a flaky connection, or a file renamed to .docx
+    // that never was one, fails to open here. JSZip says "Corrupted zip: can't
+    // find end of central directory", which is true and no help at all.
+    let zip: JSZip;
+    try {
+      zip = await JSZip.loadAsync(buf);
+    } catch {
+      throw new Error(
+        `"${name}" looks like a Word, PowerPoint or EPUB file but its contents are damaged, ` +
+          `so nothing can be read out of it. Try downloading or exporting it again.`
+      );
+    }
     if (zip.files["word/document.xml"]) return { kind: "docx", zip };
     if (Object.keys(zip.files).some((n) => n.startsWith("ppt/slides/"))) return { kind: "pptx", zip };
     if (zip.files["META-INF/container.xml"] || zip.files["mimetype"]) return { kind: "epub", zip };
@@ -566,7 +581,7 @@ export async function fileToSource(file: File): Promise<Source> {
   // says nothing useful about whether there is speech inside.
   if (isAudioName(lower)) return await audioToSource(buf, name);
 
-  const { kind, zip } = await detectKind(buf, lower);
+  const { kind, zip } = await detectKind(buf, lower, name);
 
   let pages: string[];
   switch (kind) {

@@ -1,7 +1,8 @@
 #!/usr/bin/env node --experimental-strip-types
 // Run: npm test
-import { isPrivateHost, urlToSource, chunkText, youtubeId, paragraphize, isAudioName }
+import { isPrivateHost, urlToSource, chunkText, youtubeId, paragraphize, isAudioName, fileToSource }
   from "../lib/extract.ts";
+import { completeJson } from "../lib/llm.ts";
 
 let failures = 0;
 const check = (label, got, want) => {
@@ -114,6 +115,44 @@ check("it splits into several sections", chunks.length > 1, true);
 check("the first file's heading survives", chunks[0].includes("notes-one.txt"), true);
 check("so does the second's", chunks.some((c) => c.includes("notes-two.txt")), true);
 check("no content is dropped", chunks.join("").includes("Beta."), true);
+
+console.log("\na file that can't be opened is explained, not quoted at you:");
+{
+  // JSZip's own words are "Corrupted zip: can't find end of central directory",
+  // which is accurate and no use to someone holding a broken download.
+  const bad = Buffer.from("PK\u0003\u0004not really a zip at all", "latin1");
+  const said = await fileToSource(new File([bad], "Lecture 4.docx")).then(
+    () => "no error",
+    (e) => e.message
+  );
+  check("names the file", said.includes("Lecture 4.docx"), true);
+  check("says what is wrong", said.includes("damaged"), true);
+  check("says what to do", said.includes("downloading or exporting it again"), true);
+  check("no library jargon", /central directory|Corrupted zip/i.test(said), false);
+}
+
+console.log("\nwriting cards checks the settings before calling anything:");
+{
+  // These are the two settings you can leave blank. They used to fail inside
+  // fetch instead — "Failed to parse URL from /chat/completions", and a
+  // provider's raw 400 body — because only the API key was checked here.
+  const refuses = (cfg) =>
+    completeJson(cfg, "sys", [{ type: "text", text: "hi" }]).then(
+      () => "no error",
+      (e) => e.message
+    );
+  check("a custom endpoint with no base URL",
+    await refuses({ provider: "custom", model: "m" }),
+    "Set the base URL for your custom endpoint in Settings.");
+  check("a provider with no model chosen",
+    await refuses({ provider: "custom", model: "", baseUrl: "https://example.invalid/v1" }),
+    "Choose a model for Custom in Settings.");
+  check("a key-needing provider with no key",
+    await refuses({ provider: "openai", model: "gpt-4o-mini" }),
+    "Add your OpenAI API key in Settings first.");
+  check("and reads as English whatever the provider is called",
+    (await refuses({ provider: "openai", model: "", apiKey: "k" })).includes("a OpenAI"), false);
+}
 
 console.log(failures === 0 ? "\nall input checks passed" : `\n${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

@@ -184,7 +184,7 @@ function requireConfig(cfg: LlmConfig): void {
     throw new Error("Set the base URL for your custom endpoint in Settings.");
   }
   if (!cfg.model) {
-    throw new Error(`Choose a ${info.label} model in Settings.`);
+    throw new Error(`Choose a model for ${info.label} in Settings.`);
   }
 }
 
@@ -544,9 +544,12 @@ export async function completeJson(
   schema: JsonSchema = CARD_SCHEMA,
   schemaName = "emit_flashcards"
 ): Promise<unknown> {
-  if (PROVIDERS[cfg.provider].needsKey && !cfg.apiKey) {
-    throw new Error(`Add your ${PROVIDERS[cfg.provider].label} API key in Settings first.`);
-  }
+  // The same check `completeText` makes. This used to test only the key, which
+  // left the two settings you can leave blank — a custom endpoint's base URL,
+  // and a model for the providers that ship no default — to fail deep inside
+  // fetch instead: "Failed to parse URL from /chat/completions", and a provider's
+  // raw 400 body quoted back at the reader.
+  requireConfig(cfg);
   const style = PROVIDERS[cfg.provider].style;
   if (style === "anthropic") return anthropic(cfg, system, parts, schema, schemaName);
   if (style === "ollama") return ollamaNative(cfg, system, parts, schema);

@@ -44,6 +44,11 @@ import {
 const STORAGE_KEY = "flashcard-anything:settings";
 /** Which deck to reopen on a refresh, so a reload doesn't dump you on the form. */
 const LAST_DECK_KEY = "flashcard-anything:last-deck";
+/**
+ * Marks a run the reader called off, so the notice can say so plainly instead of
+ * reporting it as a failure with a reason attached.
+ */
+const STOPPED = "\u0000stopped";
 
 export default function Home() {
   const [files, setFiles] = useState<File[]>([]);
@@ -82,6 +87,15 @@ export default function Home() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  /**
+   * Live for the duration of a run, so it can be called off.
+   *
+   * A local model can spend minutes on a section, and "Most" on a long document
+   * is longer still. Without this the only ways out of a run you did not mean to
+   * start were closing the tab or reloading, both of which threw away the cards
+   * that had already arrived.
+   */
+  const runRef = useRef<AbortController | null>(null);
 
   const ready = files.length > 0 || url.trim().length > 0 || text.trim().length > 0;
 
@@ -180,6 +194,8 @@ export default function Home() {
     // a setState value would be stale by the time an error is thrown.
     const collected: Card[] = [];
     let sourceText = "";
+    const controller = new AbortController();
+    runRef.current = controller;
     try {
       const body = new FormData();
       if (files.length) for (const f of files) body.append("file", f);
@@ -195,7 +211,11 @@ export default function Home() {
       const custom = baseUrlFor(settings);
       if (custom) body.append("baseUrl", custom);
 
-      const res = await fetch("/api/generate", { method: "POST", body });
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        body,
+        signal: controller.signal,
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error ?? "Something went wrong.");
@@ -242,7 +262,18 @@ export default function Home() {
         }
       }
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Something went wrong.";
+      const stopped = controller.signal.aborted;
+      const message = stopped
+        ? STOPPED
+        : e instanceof Error
+          ? e.message
+          : "Something went wrong.";
+      // Stopping with nothing to show is not a failure — it is the form again,
+      // with what you typed still in it.
+      if (stopped && collected.length === 0) {
+        setStreamed([]);
+        return;
+      }
       if (collected.length > 0) {
         // The run died, but sections that already finished wrote real cards.
         // Throwing away ten minutes of work over a failed last chunk would be
@@ -263,9 +294,15 @@ export default function Home() {
         setError(message);
       }
     } finally {
+      runRef.current = null;
       setBusy(false);
       setProgress(null);
     }
+  }
+
+  /** Call off a run in progress. Whatever already arrived is kept. */
+  function stopRun() {
+    runRef.current?.abort();
   }
 
   /** Write a finished deck to disk. Failing here loses the deck on reload, so say so. */
@@ -624,17 +661,33 @@ export default function Home() {
                 </button>
               </>
             ) : (
-              <span className="count live">
-                <span className="spinner" />
-                {phaseLabel} · {showing.length} card{showing.length === 1 ? "" : "s"} so far
-              </span>
+              <>
+                <span className="count live">
+                  <span className="spinner" />
+                  {phaseLabel} · {showing.length} card{showing.length === 1 ? "" : "s"} so far
+                </span>
+                <button className="ghost" onClick={stopRun}>
+                  Stop
+                </button>
+              </>
             )}
           </div>
 
           {partial && (
             <div className="notice">
-              This run stopped before it finished — {partial} The {showing.length} card
-              {showing.length === 1 ? "" : "s"} written before that are saved.
+              {partial === STOPPED ? (
+                <>
+                  You stopped this run. The {showing.length} card
+                  {showing.length === 1 ? "" : "s"} written before that are saved. Running the
+                  same material again picks up from here — the sections already written come
+                  back without asking the model twice.
+                </>
+              ) : (
+                <>
+                  This run stopped before it finished — {partial} The {showing.length} card
+                  {showing.length === 1 ? "" : "s"} written before that are saved.
+                </>
+              )}
             </div>
           )}
 
@@ -801,6 +854,9 @@ export default function Home() {
                 ? "Running on your machine — this can take a minute."
                 : `Asking ${PROVIDERS[settings.provider].label}…`}
             </div>
+            <button className="linkish" onClick={stopRun}>
+              Stop
+            </button>
           </div>
         ) : (
           <>
@@ -1002,9 +1058,16 @@ export default function Home() {
             />
           ) : (
             <p>
-              Using <b>{PROVIDERS[settings.provider].label}</b> · {modelFor(settings)}{" "}
+              Using <b>{PROVIDERS[settings.provider].label}</b>
+              {/* Several providers ship no default model, so this is blank until
+                  one is picked. Saying so beats a dangling separator and beats
+                  finding out only after pressing the button. */}
+              {modelFor(settings) ? ` · ${modelFor(settings)}` : " · no model chosen yet"}{" "}
+              {/* Named for what the errors call it. "Add your key in Settings",
+                  "Choose a model in Settings" — all of which sent the reader
+                  looking for a control called Settings that did not exist. */}
               <button className="linkish" onClick={() => setShowSettings(true)}>
-                Change
+                Settings
               </button>
             </p>
           )}
