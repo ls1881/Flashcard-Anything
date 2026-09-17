@@ -1,226 +1,129 @@
-# Flashcard-Anything
+# Flashcard Anything
 
-Convert slideshows, PDFs, textbook chapters, etc. into flashcards.
+Turn a PDF, slide deck, chapter, lecture recording, or web page into study flashcards.
 
-Drop in a file of any supported format, get the same output every time: a deck you can
-flip through on screen, saved in your browser so a reload doesn't lose it, an Anki deck you
-can import and keep studying, and a double-sided print layout where every definition lands
-exactly behind its own term.
+Feed it a file. Get back a deck you can flip through in the browser, print double-sided, or
+import into Anki. With a local model it runs entirely on your own machine — no account, no
+API key, nothing uploaded anywhere.
 
-Works with a **local model** (free, private, no key) or any **cloud provider**. Pick in the
-app under **Settings** — no config files required.
+**[Quickstart](#quickstart)** · [What it reads](#what-you-can-feed-it) ·
+[Card options](#the-three-choices) · [Print & Anki](#what-you-get-out) ·
+[Part of a book](#pointing-at-part-of-a-book) · [Providers](#providers) ·
+[Troubleshooting](#troubleshooting)
 
-| Provider | Key | Notes |
-| --- | --- | --- |
-| **Ollama** (default) | No | Runs on your machine. Free and private. |
-| **Anthropic** | Yes | Claude direct. |
-| **OpenAI** | Yes | GPT models. |
-| **OpenRouter** | Yes | One key, hundreds of models. |
-| **Google** | Yes | Gemini, via its OpenAI-compatible endpoint. |
-| **Groq** | Yes | Open models, very fast. |
-| **DeepSeek**, **Mistral**, **Together** | Yes | Hosted models. |
-| **Custom** | Optional | Any OpenAI-compatible URL — vLLM, LM Studio, llama.cpp, a gateway. |
+---
 
-Adding a provider is a preset in [`lib/providers.ts`](lib/providers.ts), not new client
-code: everything except Anthropic and Ollama speaks OpenAI's dialect, and **Custom** covers
-anything not listed. Keys can also come from the environment — `ANTHROPIC_API_KEY`,
-`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`,
-`DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `TOGETHER_API_KEY`, `CUSTOM_LLM_API_KEY`.
+## Quickstart
 
-**Light or dark** is the sun/moon button in the top right.
+**Requirements:** Node 18.18 or newer (20+ recommended).
 
-## Setup
+### Option A — free and local (recommended)
 
 ```bash
+# 1. Install and start Ollama, then pull a model (~5GB, one time)
 brew install ollama          # or download from ollama.com
-ollama serve                 # leave running
-ollama pull qwen3:8b         # ~5GB, one time
+ollama serve                 # leave this running in its own terminal
+ollama pull qwen3:8b
 
+# 2. Start the app
 npm install
-npm run dev                  # http://localhost:3000
+npm run dev                  # → http://localhost:3000
 ```
 
-Tests are `npm test`. There is also `npm run test:anki`, which checks the Anki export by
-importing it with Anki itself; it needs the Anki Python library and skips without it:
+Nothing leaves your machine. No key, no signup, no cost.
+
+### Option B — a cloud model (much faster)
 
 ```bash
-python3 -m venv /tmp/ankienv && /tmp/ankienv/bin/pip install anki
-ANKI_PYTHON=/tmp/ankienv/bin/python npm run test:anki
+npm install
+npm run dev                  # → http://localhost:3000
 ```
 
-That's the whole setup for local use. For OpenRouter or Anthropic, click **Settings** in the
-app and paste a key — it's stored in your browser only and never written to the repo. If
-you'd rather keep keys out of the browser, put `ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY`
-in `.env.local` and leave the field blank.
+Then click **Settings** at the bottom of the page, choose a provider, and paste your API key.
 
-## Using it
+> **Pick Anthropic or OpenRouter for zero extra steps** — they come with a default model
+> already filled in. Every other provider needs you to type a model name too.
 
-1. Drop in **one file or several** — PDF, PowerPoint, Word, EPUB, text, an image, a scan, or
-   a recording. Or paste a **link** (a page, or a YouTube lecture). Or paste text.
-2. Optionally say **which part** you want: `chapter 3, section 2`.
-3. Choose what kind of cards you want and how hard — see below.
-4. Hit **Make flashcards**. Cards appear as each section is written, so you can start
-   reading long before the run finishes.
-5. Click any card to flip it, hit **Print** for the paper deck, or **Export Anki** to carry
-   it into Anki.
-6. Fix anything that came out wrong — see below. The deck saves itself either way; reload
-   the page and it's still there.
+Keys are stored in your browser and never written to the repo. To keep them out of the
+browser entirely, put the key in `.env.local` instead and leave the field blank:
 
-Running the same material twice with the same settings is instant — the result is cached, so
-a rerun after a typo in the scope costs nothing. If a run dies partway, the sections that
-finished are kept, and running it again only pays for the ones that didn't.
+```bash
+echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env.local
+```
 
-If a run fails partway, the sections that already finished are kept and saved — you get a
-short deck and a note saying it stopped early, rather than nothing. **Stop** does the same on
-purpose: the cards written so far are yours, and running the same material again picks up
-where it left off instead of paying for those sections twice.
+### Make your first deck
 
-## What kind of cards
+1. Paste a few paragraphs into the big text box (or drop in a file).
+2. Click **Make flashcards**.
+3. Cards appear as they're written. Click one to flip it.
+
+That's it. The deck saves itself — reload the page and it's still there.
+
+---
+
+## What you can feed it
+
+| Input | Notes |
+| --- | --- |
+| **PDF** | Including scans and photocopies — see [Optional extras](#optional-extras) |
+| **PowerPoint** `.pptx` | Slide text *and* speaker notes |
+| **Word** `.docx`, **EPUB**, **RTF**, **HTML** | Read directly |
+| **Text** `.txt` `.md` `.csv` | Or just paste into the box |
+| **Images** | Screenshots of slides, photos of a page |
+| **Audio/video** | `.mp3` `.m4a` `.wav` `.mp4` — see [Optional extras](#optional-extras) |
+| **A web page** | Paste the URL. Public `http`/`https` only |
+| **A YouTube lecture** | Paste the video link; its captions become the source |
+
+Drop in **several files at once** and they become one deck. File type is detected from the
+bytes, not the extension, so a mislabelled file still works.
+
+---
+
+## The three choices
+
+Three dropdowns sit above the **Make flashcards** button.
+
+**Cards as**
 
 | Style | Front | Back |
 | --- | --- | --- |
 | **Definitions** | a term, 1–5 words | what it means |
 | **Questions** | a question the source answers | the answer |
 
-And a **Level**: **Introductory** goes for the core vocabulary and the headline figures;
-**Exam level** goes for mechanisms, conditions, exceptions, distinctions between things that
-are easily confused, and exact figures.
+**Level** — **Introductory** (core vocabulary, headline figures) or **Exam level**
+(mechanisms, conditions, exceptions, exact figures).
 
-And **How many**:
+**How many**
 
-| | What you get |
+| Setting | What you get |
 | --- | --- |
-| **Fewest** | Only what you couldn't skip — the ideas the material is built around |
+| **Fewest** | Only the ideas you couldn't skip |
 | **Normal** | One card per idea worth memorizing |
-| **Most** | Everything the material supports, with repeats still removed |
+| **Most** | Everything the material supports, minus repeats |
 
-It changes how selective the writer is, section by section, rather than cutting a long deck
-short — so **Fewest** still covers the whole document, just sparsely. A ceiling is a ceiling
-and not a quota: thin material gives a short deck at any setting, and **Most** will stop
-early rather than pad. On one page of biology notes against a local `qwen3:8b` the three
-settings gave 3, 8 and 17 cards.
+This changes how selective the writer is *per section*, so **Fewest** still covers the whole
+document — just sparsely. It's a ceiling, not a quota: thin material gives a short deck at
+any setting. One page of biology notes against a local `qwen3:8b` gave **3, 8 and 17 cards**.
 
-**Most** asks a lot more of the model and takes correspondingly longer — on a local model,
-minutes where **Normal** takes seconds. On a hosted provider the difference is small.
+> ⚠️ **Most** is much slower on a local model — minutes where **Normal** takes seconds. On a
+> cloud provider the difference is small.
 
-Whichever you pick, every card still has to quote your source to survive — the accuracy
-checks don't change with the style, the level, or how many you asked for.
+---
 
-## Where a card came from
+## What you get out
 
-**Source** on any card opens the passage it was written from, with the sentence it quoted
-highlighted. It's a local lookup against the text saved with the deck, so it's instant and
-works offline.
+### On screen
 
-## Reading from a link, a scan, or a recording
+Click a card to flip it. **Edit** fixes one by hand; **AI rewrite** asks the model for a
+different definition (one quick call, not a rerun); **Source** shows the passage the card
+came from, highlighted.
 
-- **A web page** — paste the address. Only public `http`/`https` addresses are fetched.
-- **A YouTube lecture** — paste the video link and its captions become the source. English
-  captions are preferred when the video has them. A video with captions turned off will say
-  so rather than failing quietly.
-- **A scanned PDF** — a photocopy with no usable text layer is rendered and read by OCR. That
-  needs `tesseract`, which the app looks up rather than bundles:
+### Printed, double-sided
 
-  ```bash
-  brew install tesseract        # or: apt install tesseract-ocr
-  ```
-
-  Without it, the pages go to a vision model instead (`ollama pull qwen2.5vl:7b`). OCR is
-  tried first because it needs no model at all and is faster and more accurate on printed
-  body text; the vision model is the better reader for handwriting and whiteboards.
-- **A recording** — an `.mp3`, `.m4a`, `.wav` or video file is transcribed on your machine.
-  That needs two things installed, and the app will tell you if they're missing:
-
-  ```bash
-  brew install whisper-cpp ffmpeg
-  curl -L -o ~/whisper-base.en.bin \
-    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
-  WHISPER_MODEL=~/whisper-base.en.bin npm run dev
-  ```
-
-## Sending a deck to Anki
-
-**Export Anki** gives you a real `.apkg` — double-click it, or use *File → Import* in Anki.
-There is no CSV mapping to fill in: the deck arrives named, with its own note type, styled
-cards, and every card unstudied so Anki's scheduler starts clean.
-
-Each card becomes a note with three fields — **Term**, **Definition** and **Source** — and
-one card per note. Notes are tagged `flashcard-anything` and with the name of the file they
-came from, so you can find or undo an import from Anki's browser.
-
-**You can export the same deck again.** Fix a card here, export, and re-import: Anki updates
-the notes it already has instead of giving you a second copy of the deck, and **your review
-history is kept**. That works because each note's identity is derived from the deck and the
-term rather than generated fresh each time.
-
-Works with Anki 2.1 and everything since, including AnkiDroid and AnkiMobile.
-
-## Fixing a card
-
-No deck comes out perfect, and rerunning the whole document to fix two cards is a poor
-trade. Hovering a card shows two controls:
-
-- **Edit** — change the term or the definition by hand, in place. Enter saves, Escape
-  abandons.
-- **AI rewrite** — hand the card back to the model for a different definition. It's one call
-  against the part of your source that card came from, not a rerun, so it takes seconds
-  rather than minutes. The term is left alone; use **Edit** if the front is the problem.
-
-A rewrite has to earn its place. It must quote your source, it can't restate another card,
-and — the one that matters in practice — it can't just reword the definition it is
-replacing. If the model comes back saying the same thing, it's asked again more forcefully;
-if it still can't, the card is left exactly as it was and the page tells you the source may
-not support a different answer. Card writing runs at temperature 0 so a document always
-gives the same deck, but a rewrite samples: asking the same question the same way would only
-return the answer you just rejected.
-
-Decks made before this feature existed have no saved source text, so **AI rewrite** will
-tell you to edit by hand instead.
-
-## Saved decks
-
-A finished deck is written to your browser's storage automatically — there's no Save button
-to forget. Reload and you land back on the deck you were reading, not on the upload form.
-
-**All decks** closes the current deck and shows everything you've made, newest first. Click
-the deck's name to rename it; **Delete** removes it for good and asks first. Nothing leaves
-your machine, and nothing is sent to a server — decks are saved in *this* browser, so they
-won't follow you to another device. Use **Export JSON** if you need one somewhere else.
-
-A private window, or a browser set to block site data, will refuse to store anything. The
-app keeps working; it just tells you the deck won't survive a reload.
-
-## Pointing it at part of a book
-
-Upload the whole textbook and name the part you want. The request is resolved against the
-document's own structure before anything reaches a model, so only that slice is read:
-
-| You type | What happens |
-| --- | --- |
-| `chapter 3, section 2` | Finds section 3.2, or the 2nd section inside chapter 3 |
-| `chapter 4` | The whole chapter, up to the next chapter heading |
-| `section 2.3` or just `2.3` | That numbered section |
-| `Heat Engines` | Matches against heading titles |
-| `pages 100-120`, `slides 4-9` | A page or slide range |
-
-Headings are found by pattern (`Chapter 7`, `3.2 Reaction Kinetics`, `Section 4.1`), and
-the result bar tells you what it actually used — `3.2 Entropy and the Second Law (pages
-84–97)` — so a wrong guess is visible rather than silent. Ask for something that isn't
-there and it says so, listing the chapters it did find. Page numbers are real for PDFs and
-slides; plain text files count as a single page.
-
-**Long documents now refuse rather than truncate.** A whole textbook with no part named
-returns an error telling you to name one, instead of quietly making cards from page one.
-
-## Printing double-sided
-
-Each page prints as a front sheet followed by its matching back sheet.
-
-1. Pick your **Paper** — US Letter or A4 — and a **Cards** size.
-2. Hit **Print**, then turn on two-sided / duplex printing.
-3. Match the **Flip on** dropdown to your printer's setting — **long edge** (the common
-   default) or **short edge**.
-4. Print, then cut along the dashed lines.
+1. Pick **Paper** (US Letter or A4) and a **Cards** size.
+2. Click **Print** and turn on two-sided/duplex printing.
+3. Set **Flip on** to match your printer — **long edge** (the usual default) or **short edge**.
+4. Cut along the dashed lines.
 
 | Cards | Size | Per sheet |
 | --- | --- | --- |
@@ -228,45 +131,23 @@ Each page prints as a front sheet followed by its matching back sheet.
 | **Index card** | 3 × 5 in | 4 |
 | **Business card** | 3.5 × 2 in | 10 |
 
-Index and business cards come out at exactly that size on either paper, so they fit the box
-or wallet you bought them for; **6 per sheet** has no fixed size and just divides the page.
-Your paper, card size and flip edge are remembered.
+Backs are reordered to compensate for the flip, so every definition lands behind its own
+term. Index and business cards come out at exactly that size on either paper.
 
-The back sheet is reordered to compensate for the flip, so backs line up with fronts
-instead of ending up on the wrong card. Long edge mirrors each row left-to-right; short
-edge reverses the row order. Both sides use an identical fixed grid, so the cut lines
-match on each side of the paper.
+### In Anki
 
-The setting drives the cards on screen too, read against the card in front of you: a card is
-wider than it is tall, so **long edge** turns it top-to-bottom about its long edges, and
-**short edge** turns it left-to-right about its short ones. (The paper is portrait, so the
-same two words mean the opposite axes for the sheet — which is what the reordering above is
-doing. Printing is unaffected by which way the preview spins.)
+**Export Anki** gives you a real `.apkg` — double-click it. No CSV mapping to fill in.
 
-## How it works
+**You can re-export the same deck.** Fix a card here, export again, re-import: Anki updates
+the notes it already has instead of duplicating the deck, and **your review history is
+kept**. Works with Anki 2.1+, AnkiDroid and AnkiMobile.
 
-| Input | Handling |
-| --- | --- |
-| PDF | Text extracted locally with `unpdf`, one page at a time |
-| .pptx | Slide text + speaker notes unpacked from the OOXML |
-| .docx | Document text unpacked from the OOXML |
-| .epub | Chapters read in spine order |
-| .rtf, .html | Markup stripped |
-| .txt/.md/.csv | Read directly |
-| Images | Read by OCR when it's a picture of text, otherwise sent to a vision model |
+### As JSON
 
-Format is detected from the file's bytes rather than its extension, so a mislabelled or
-extension-less file still works. Legacy `.doc`/`.ppt`, Pages/Keynote, and files that aren't
-documents at all are refused with a message saying what to do instead, rather than being
-fed to the model as garbage.
+**Export JSON** gives a stable, documented shape.
 
-Everything normalizes to the same `{ term, definition }` list, which drives both the
-on-screen deck and the print sheets.
-
-## Exporting
-
-**Export JSON** downloads the deck in a stable, documented shape, so other tools can read
-it without scraping the page:
+<details>
+<summary>The JSON shape</summary>
 
 ```json
 {
@@ -275,7 +156,7 @@ it without scraping the page:
   "source": "lecture8.pdf",
   "scope": "3.2 Entropy and the Second Law (pages 84–97)",
   "model": { "provider": "ollama", "name": "qwen3:8b" },
-  "count": 2,
+  "count": 1,
   "cards": [
     {
       "term": "Chemiosmosis",
@@ -286,93 +167,158 @@ it without scraping the page:
 }
 ```
 
-`version` is bumped on any breaking change to the shape. `scope` is `null` when the whole
-document was used. `evidence` is the span the card was checked against, which is useful for
-auditing a deck but can be ignored.
+`scope` is `null` when the whole document was used; `evidence` is the span the card was
+checked against, safe to ignore.
 
-The same JSON comes back from the API, so a script can skip the UI entirely:
+</details>
+
+---
+
+## Pointing at part of a book
+
+Upload the whole textbook and name the part you want in the **Which part?** box. It's
+resolved against the document's own structure before any model sees it.
+
+| You type | What you get |
+| --- | --- |
+| `chapter 3, section 2` | Section 3.2 |
+| `chapter 4` | The whole chapter |
+| `section 2.3` or `2.3` | That numbered section |
+| `Heat Engines` | Matched against heading titles |
+| `pages 100-120`, `slides 4-9` | A page or slide range |
+
+The bar above your deck reports what it actually used, so a wrong guess is visible. A whole
+textbook with no part named is **refused** rather than quietly turned into cards from page
+one.
+
+---
+
+## Optional extras
+
+Looked up on your PATH, not bundled. The app tells you if one is missing.
+
+**Scanned PDFs and photos of text** — read by OCR, no model needed:
+
+```bash
+brew install tesseract        # or: apt install tesseract-ocr
+```
+
+Without it, pages go to a vision model instead (`ollama pull qwen2.5vl:7b`). OCR is tried
+first — faster and more accurate on printed text; the vision model is better for handwriting
+and whiteboards.
+
+**Lecture recordings** — transcribed on your machine:
+
+```bash
+brew install whisper-cpp ffmpeg
+curl -L -o ~/whisper-base.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+WHISPER_MODEL=~/whisper-base.en.bin npm run dev
+```
+
+---
+
+## Providers
+
+| Provider | Key | Default model | Notes |
+| --- | --- | --- | --- |
+| **Ollama** (default) | No | `qwen3:8b` | Local, free, private |
+| **Anthropic** | Yes | `claude-sonnet-5` | Claude direct |
+| **OpenRouter** | Yes | `anthropic/claude-sonnet-5` | One key, hundreds of models |
+| **OpenAI** | Yes | — | GPT models |
+| **Google** | Yes | — | Gemini, via its OpenAI-compatible endpoint |
+| **Groq** | Yes | — | Open models, very fast |
+| **DeepSeek**, **Mistral**, **Together** | Yes | — | Hosted models |
+| **Custom** | Optional | — | Any OpenAI-compatible URL: vLLM, LM Studio, llama.cpp |
+
+Providers showing no default model need one typed into **Settings**. Environment variables
+work for all of them: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`,
+`GOOGLE_API_KEY`, `GROQ_API_KEY`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `TOGETHER_API_KEY`,
+`CUSTOM_LLM_API_KEY`.
+
+---
+
+## Good to know
+
+- **Decks save themselves**, to this browser only. Reloading returns you to the deck you were
+  reading. Use **Export JSON** or **Export Anki** to get one onto another device.
+- **Reruns are free.** Same material, same settings — cached, instant.
+- **Light or dark** is the sun/moon button in the top right.
+- **Nothing is lost if a run ends early.** Whether it fails or you press **Stop**, the
+  sections already written are saved, and running it again picks up from there.
+- **Cards must quote your source.** Every card carries a span copied from your document, and
+  the server checks it really appears there — invented content is dropped, as are duplicates.
+  See [PLAN.md](PLAN.md) for how and why.
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+| --- | --- |
+| "Can't reach Ollama" | Run `ollama serve` in another terminal |
+| "Model isn't pulled yet" | Run `ollama pull qwen3:8b` |
+| Definitions are weak | Use a bigger model (`ollama pull qwen3:14b`) or a cloud provider |
+| A dense textbook section is slow | Scope to a section, not a chapter — an 8B local model is near its limit on maths-heavy material |
+| A screenshot came back empty | Transparent PNGs can reach the model as a black rectangle; save as JPEG |
+| A scan produced nothing | Install `tesseract`, or configure a vision model |
+
+---
+
+## For scripts
+
+The API streams newline-delimited JSON, so you can generate a deck without the UI.
+
+<details>
+<summary>Example request</summary>
 
 ```bash
 curl -s -N -X POST http://localhost:3000/api/generate \
-  -F "file=@notes.pdf" -F "scope=chapter 3" \
-  -F "provider=ollama" -F "model=qwen3:8b" | tail -1
+  -F "file=@notes.pdf" \
+  -F "provider=ollama" -F "model=qwen3:8b" \
+  -F "density=normal" | tail -1
 ```
 
-The endpoint streams newline-delimited JSON: `{"type":"progress",…}` lines while it works,
-then a final `{"type":"result","cards":[…]}` or `{"type":"error","error":"…"}`.
+Add `-F "scope=chapter 3"` to narrow it, or swap `file=@…` for `text=…` or `url=…`.
 
-## Staying grounded in your source
+`{"type":"progress",…}` lines while it works, then a final `{"type":"result","cards":[…]}`
+or `{"type":"error","error":"…"}`.
 
-Models like to answer from prior knowledge — asked about "URTC" in a conference paper, one
-will happily invent "Unified Regional Transportation Corridor."
+</details>
 
-**Write.** Each section is turned into cards, and every card must also return an `evidence`
-span quoted from the text.
+---
 
-**Check — is the quote real?** The server verifies that span actually appears in what the
-model was shown (normalized substring, falling back to 85% word overlap). Invented content
-shares almost no vocabulary with the source, so it fails here and is dropped. This is the
-default, and it costs about a second.
+## Development
 
-**Optionally, review.** A quote being real doesn't mean the definition says what the quote
-says. A second model pass can re-read the section and judge each card `ok`, `fix` (with a
-corrected definition drawn only from the source), or `drop` — repairing cards rather than
-just discarding them. It is **off by default**: benchmarking six arrangements found it
-tripled runtime without changing any score ([bench/](bench/)). Turn it on per request with
-`-F "pipeline=grounded-review"`.
+```bash
+npm test              # all checks
+npm run build
+```
 
-**No duplicates.** A deck should never teach the same thing twice. Matching lowercased
-terms isn't enough — a document that writes "intravaginal ring (IVR)" in one section and
-"intravaginal ring" in another produces two cards with the same back. So a card is dropped
-if its term normalizes to one already kept (ignoring case, a parenthetical gloss, a leading
-article, and simple plurals), if the document's own glossary says its acronym expands to a
-term already kept, or if its definition says substantially the same thing as one already
-kept. Different figures make definitions different, so "40 units" and "85 units" stay apart.
-This happens silently — you get the deck, not a report on how it was assembled.
+`npm run test:anki` imports a real `.apkg` with Anki itself; it skips unless Anki's Python
+library is present:
 
-**Context, so chunks don't invite invention.** Acronym expansions (`URTC = Undergraduate
-Research and Technology Conference`) are harvested from the whole document before splitting
-and attached to every request, so a term defined on page 1 is still understood on page 9.
-Chunks overlap ~320 characters. Temperature is 0.
+```bash
+python3 -m venv /tmp/ankienv && /tmp/ankienv/bin/pip install anki
+ANKI_PYTHON=/tmp/ankienv/bin/python npm run test:anki
+```
 
-All of this is internal: cards that fail a check never reach the page. The counts are in
-the API response for scripts and for the benchmark, but the app shows you the deck, not the
-machinery behind it.
+<details>
+<summary>Where things live</summary>
 
-Local models have small context windows, so long material is split on paragraph boundaries
-and turned into cards a section at a time, with progress streamed back to the page and
-duplicate terms merged out. Cloud providers get much larger chunks, so they usually finish
-in one pass.
+| File | What's in it |
+| --- | --- |
+| [`lib/providers.ts`](lib/providers.ts) | Provider presets — adding one is a table entry |
+| [`lib/llm.ts`](lib/llm.ts) | Provider clients and error messages |
+| [`lib/extract.ts`](lib/extract.ts) | Any upload → text, and chunking |
+| [`lib/ocr.ts`](lib/ocr.ts) | Tesseract lookup and page OCR |
+| [`app/api/generate/route.ts`](app/api/generate/route.ts) | Card rules, streamed generation |
+| [`lib/duplex.ts`](lib/duplex.ts) | Front/back mirroring math |
+| [`app/globals.css`](app/globals.css) | Screen styles and the `@page` print layout |
 
-Images and scans take an extra step: the page is transcribed first — by OCR where tesseract
-is installed and the page is printed text, by a vision model otherwise — and the
-transcription then goes through the same grounded pipeline as any document, so a photocopy
-gets the same evidence check and review as a PDF.
+</details>
 
-**Limits:**
+[PLAN.md](PLAN.md) — how it works and why. [ROADMAP.md](ROADMAP.md) — what's next.
+[bench/](bench/) — the measurements behind the default pipeline.
 
-- A scan with neither `tesseract` installed nor a vision model configured will say so rather
-  than guessing. Install one or the other.
-- Transparent PNGs can reach the model as a black rectangle. Save as JPEG if a screenshot
-  comes back empty.
-- Small vision models are weak on dense maths and can loop; generation is capped so that
-  fails in seconds rather than minutes. Expect thin results from image uploads of
-  formula-heavy pages, and prefer the original document when you have it.
-- Card quality tracks the model. With Ollama, a bigger model (`ollama pull qwen3:14b`)
-  gives noticeably better definitions.
-- A dense textbook section is near the edge of what an 8B local model handles well, and a
-  full section takes around ten minutes. Scope to a section rather than a chapter, and
-  prefer a larger model or a cloud provider for maths-heavy material.
-
-Running headers, footers, and other page furniture are stripped before the model reads a
-page, so cards come from the content rather than the margins.
-
-- [`lib/providers.ts`](lib/providers.ts) — the three providers and their defaults
-- [`lib/llm.ts`](lib/llm.ts) — provider clients, JSON coaxing, error messages
-- [`lib/extract.ts`](lib/extract.ts) — turns any upload into text, and chunks it
-- [`app/api/generate/route.ts`](app/api/generate/route.ts) — card rules and streamed generation
-- [`lib/duplex.ts`](lib/duplex.ts) — the front/back mirroring math
-- [`app/globals.css`](app/globals.css) — screen styles and the `@page` print layout
-
-See [PLAN.md](PLAN.md) for how it works and why, and [ROADMAP.md](ROADMAP.md) for
-what's planned next.
+MIT licensed.
